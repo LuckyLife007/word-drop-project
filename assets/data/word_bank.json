@@ -3,7 +3,7 @@
     {
       "word": "BANANA",
       "length": 6,
-      "incomplete_versions": ["B-N-N-", "-A-A-A", "B--AN-"],
+      "hints": ["B-N-N-", "-A-A-A", "B--AN-"],
       "clues": [
         "Yellow curved fruit",
         "Tropical plant with elongated edible berry",
@@ -13,7 +13,7 @@
     {
       "word": "BRIDGE",
       "length": 6,
-      "incomplete_versions": ["B-I-G-", "-R-D-E", "BR---E"],
+      "hints": ["B-I-G-", "-R-D-E", "BR---E"],
       "clues": [
         "Structure that spans a river or valley",
         "Connection over water or gap",
@@ -23,7 +23,7 @@
     {
       "word": "CASTLE",
       "length": 6,
-      "incomplete_versions": ["C-S-L-", "-A-T-E", "CA--L-"],
+      "hints": ["C-S-L-", "-A-T-E", "CA--L-"],
       "clues": [
         "Fortified building for royalty",
         "Medieval stronghold with towers",
@@ -33,7 +33,7 @@
     {
       "word": "DOCTOR",
       "length": 6,
-      "incomplete_versions": ["D--TO-", "-O-T-R", "DO---R"],
+      "hints": ["D--TO-", "-O-T-R", "DO---R"],
       "clues": [
         "Medical professional who heals",
         "Physician treating illnesses",
@@ -43,7 +43,7 @@
     {
       "word": "ENGINE",
       "length": 6,
-      "incomplete_versions": ["E--I-E", "-N-I-E", "EN---E"],
+      "hints": ["E--I-E", "-N-I-E", "EN---E"],
       "clues": [
         "Machine powering vehicles",
         "Motor converting energy to motion",
@@ -53,7 +53,7 @@
     {
       "word": "FLOWER",
       "length": 6,
-      "incomplete_versions": ["F-O--R", "-L-W-R", "FL---R"],
+      "hints": ["F-O--R", "-L-W-R", "FL---R"],
       "clues": [
         "Blooming plant part",
         "Colorful petal structure in gardens",
@@ -63,7 +63,7 @@
     {
       "word": "FOREST",
       "length": 6,
-      "incomplete_versions": ["F-R--T", "-O-E-T", "FO---T"],
+      "hints": ["F-R--T", "-O-E-T", "FO---T"],
       "clues": [
         "Large area covered with trees",
         "Woodland habitat for animals",
@@ -73,7 +73,7 @@
     {
       "word": "FRIEND",
       "length": 6,
-      "incomplete_versions": ["F-I-N-", "-R-E-D", "FR---D"],
+      "hints": ["F-I-N-", "-R-E-D", "FR---D"],
       "clues": [
         "Close companion",
         "Someone you trust and care about",
@@ -83,7 +83,7 @@
     {
       "word": "GARDEN",
       "length": 6,
-      "incomplete_versions": ["G-R--N", "-A-D-N", "GA---N"],
+      "hints": ["G-R--N", "-A-D-N", "GA---N"],
       "clues": [
         "Outdoor space for cultivating plants",
         "Plot for growing vegetables or flowers",
@@ -93,7 +93,7 @@
     {
       "word": "GUITAR",
       "length": 6,
-      "incomplete_versions": ["GU-T--", "G-I-A-", "-U-T-R"],
+      "hints": ["GU-T--", "G-I-A-", "-U-T-R"],
       "clues": [
         "Stringed musical instrument",
         "Six-stringed musical instrument",
@@ -103,7 +103,7 @@
     {
       "word": "HAMMER",
       "length": 6,
-      "incomplete_versions": ["H-M--R", "-A-M-R", "HA---R"],
+      "hints": ["H-M--R", "-A-M-R", "HA---R"],
       "clues": [
         "Tool for pounding nails",
         "Striking instrument with a handle",
@@ -113,7 +113,7 @@
     {
       "word": "ISLAND",
       "length": 6,
-      "incomplete_versions": ["I-L-N-", "-S-A-D", "IS---D"],
+      "hints": ["I-L-N-", "-S-A-D", "IS---D"],
       "clues": [
         "Land surrounded by water",
         "Isolated terrain in the ocean",
@@ -123,7 +123,7 @@
     {
       "word": "JACKET",
       "length": 6,
-      "incomplete_versions": ["J-C--T", "-A-K-T", "JA---T"],
+      "hints": ["J-C--T", "-A-K-T", "JA---T"],
       "clues": [
         "Outer garment for upper body",
         "Coat worn for warmth",
@@ -133,7 +133,7 @@
     {
       "word": "KITTEN",
       "length": 6,
-      "incomplete_versions": ["K-T--N", "-I-T-N", "KI--E-"],
+      "hints": ["K-T--N", "-I-T-N", "KI--E-"],
       "clues": [
         "Young cat",
         "Baby feline pet",
@@ -143,7 +143,7 @@
     {
       "word": "PENCIL",
       "length": 6,
-      "incomplete_versions": ["P-N-I-", "-E-C-L", "PEN---"],
+      "hints": ["P-N-I-", "-E-C-L", "PEN---"],
       "clues": [
         "Writing tool with graphite core",
         "Instrument for drawing or writing that can be erased",
@@ -153,7 +153,7 @@
     {
       "word": "PIRATE",
       "length": 6,
-      "incomplete_versions": ["P-R-T-", "-I-A-E", "PI---E"],
+      "hints": ["P-R-T-", "-I-A-E", "PI---E"],
       "clues": [
         "Sea criminal who steals treasure",
         "Sailor with eyepatch and parrot",
@@ -163,7 +163,7 @@
     {
       "word": "PLANET",
       "length": 6,
-      "incomplete_versions": ["P-A-E-", "-L-N-T", "PL---T"],
+      "hints": ["P-A-E-", "-L-N-T", "PL---T"],
       "clues": [
         "Celestial body orbiting a star",
         "Large object in space like Earth",
@@ -173,7 +173,7 @@
     {
       "word": "SOCCER",
       "length": 6,
-      "incomplete_versions": ["SO--E-", "-OC-E-", "S-C-E-"],
+      "hints": ["SO--E-", "-OC-E-", "S-C-E-"],
       "clues": [
         "Called football everywhere except USA",
         "Sport played with feet and a round ball",
@@ -183,7 +183,7 @@
     {
       "word": "SUMMER",
       "length": 6,
-      "incomplete_versions": ["S-MM--", "-U-M-R", "SU---R"],
+      "hints": ["S-MM--", "-U-M-R", "SU---R"],
       "clues": [
         "Warmest season of the year",
         "Time between spring and autumn",
@@ -193,7 +193,7 @@
     {
       "word": "WINDOW",
       "length": 6,
-      "incomplete_versions": ["W-N--W", "-I-D-W", "WI---W"],
+      "hints": ["W-N--W", "-I-D-W", "WI---W"],
       "clues": [
         "Glass opening in a wall",
         "Transparent panel for looking outside",
@@ -203,7 +203,7 @@
     {
       "word": "AIRPORT",
       "length": 7,
-      "incomplete_versions": ["A--POR-", "-I-P-RT", "AIR---T"],
+      "hints": ["A--POR-", "-I-P-RT", "AIR---T"],
       "clues": [
         "Hub for airplane takeoffs and landings",
         "Facility with runways and terminals",
@@ -213,7 +213,7 @@
     {
       "word": "BATTERY",
       "length": 7,
-      "incomplete_versions": ["B--TE-Y", "-A-T-RY", "BAT---Y"],
+      "hints": ["B--TE-Y", "-A-T-RY", "BAT---Y"],
       "clues": [
         "Power source for devices",
         "Energy storage cell",
@@ -223,7 +223,7 @@
     {
       "word": "BLANKET",
       "length": 7,
-      "incomplete_versions": ["B-A-K-T", "-L-N-ET", "BL---ET"],
+      "hints": ["B-A-K-T", "-L-N-ET", "BL---ET"],
       "clues": [
         "Soft covering for warmth while sleeping",
         "Fabric layer for beds and couches",
@@ -233,7 +233,7 @@
     {
       "word": "CAPTAIN",
       "length": 7,
-      "incomplete_versions": ["C-PTA--", "-A-T-IN", "CA---IN"],
+      "hints": ["C-PTA--", "-A-T-IN", "CA---IN"],
       "clues": [
         "Leader of a ship or team",
         "Commander in charge",
@@ -243,7 +243,7 @@
     {
       "word": "CHICKEN",
       "length": 7,
-      "incomplete_versions": ["C-I-K-N", "-H-C-EN", "CH---EN"],
+      "hints": ["C-I-K-N", "-H-C-EN", "CH---EN"],
       "clues": [
         "Farm bird that lays eggs",
         "Feathered animal that says cluck",
@@ -253,7 +253,7 @@
     {
       "word": "DENTIST",
       "length": 7,
-      "incomplete_versions": ["D--TIS-", "-E-TI-T", "DEN---T"],
+      "hints": ["D--TIS-", "-E-TI-T", "DEN---T"],
       "clues": [
         "Oral health professional",
         "Tooth doctor who fills cavities",
@@ -263,7 +263,7 @@
     {
       "word": "DIAMOND",
       "length": 7,
-      "incomplete_versions": ["DI-M-N-", "D-A-O-D", "-IAM-N-"],
+      "hints": ["DI-M-N-", "D-A-O-D", "-IAM-N-"],
       "clues": [
         "Precious sparkling gem",
         "Hardest natural substance on Earth",
@@ -273,7 +273,7 @@
     {
       "word": "ELEVATE",
       "length": 7,
-      "incomplete_versions": ["E--V-TE", "-L-VA-E", "ELE---E"],
+      "hints": ["E--V-TE", "-L-VA-E", "ELE---E"],
       "clues": [
         "To raise or lift up",
         "Increase in height or status",
@@ -283,7 +283,7 @@
     {
       "word": "FANTASY",
       "length": 7,
-      "incomplete_versions": ["FA-T-S-", "-A-TA-Y", "FAN---Y"],
+      "hints": ["FA-T-S-", "-A-TA-Y", "FAN---Y"],
       "clues": [
         "Imaginary world or story",
         "Genre with magic and dragons",
@@ -293,7 +293,7 @@
     {
       "word": "GIRAFFE",
       "length": 7,
-      "incomplete_versions": ["GI-A-F-", "-I-A-FE", "GIR---E"],
+      "hints": ["GI-A-F-", "-I-A-FE", "GIR---E"],
       "clues": [
         "Tall African animal with long neck",
         "Spotted mammal that eats leaves from trees",
@@ -303,7 +303,7 @@
     {
       "word": "HISTORY",
       "length": 7,
-      "incomplete_versions": ["HI-T-R-", "-IS-O-Y", "HIS---Y"],
+      "hints": ["HI-T-R-", "-IS-O-Y", "HIS---Y"],
       "clues": [
         "Study of past events",
         "Record of human achievements",
@@ -313,7 +313,7 @@
     {
       "word": "INVOLVE",
       "length": 7,
-      "incomplete_versions": ["IN-O-V-", "-N-OLV-", "INV---E"],
+      "hints": ["IN-O-V-", "-N-OLV-", "INV---E"],
       "clues": [
         "To include or engage",
         "Require participation",
@@ -323,7 +323,7 @@
     {
       "word": "JOURNEY",
       "length": 7,
-      "incomplete_versions": ["J-UR-E-", "-O-R-EY", "JOU---Y"],
+      "hints": ["J-UR-E-", "-O-R-EY", "JOU---Y"],
       "clues": [
         "Trip from one place to another",
         "Adventure or expedition",
@@ -333,7 +333,7 @@
     {
       "word": "JUSTICE",
       "length": 7,
-      "incomplete_versions": ["JU-T-C-", "-USTI--", "JUS---E"],
+      "hints": ["JU-T-C-", "-USTI--", "JUS---E"],
       "clues": [
         "Fairness in law and society",
         "Principle of moral rightness",
@@ -343,7 +343,7 @@
     {
       "word": "KITCHEN",
       "length": 7,
-      "incomplete_versions": ["K-T-H-N", "-I-C-EN", "KIT---N"],
+      "hints": ["K-T-H-N", "-I-C-EN", "KIT---N"],
       "clues": [
         "Room where food is prepared",
         "Place for cooking and baking",
@@ -353,7 +353,7 @@
     {
       "word": "LIBRARY",
       "length": 7,
-      "incomplete_versions": ["LI-R-R-", "L-B-A-Y", "-I-R-RY"],
+      "hints": ["LI-R-R-", "L-B-A-Y", "-I-R-RY"],
       "clues": [
         "Place with many books",
         "Building housing book collections",
@@ -363,7 +363,7 @@
     {
       "word": "RAINBOW",
       "length": 7,
-      "incomplete_versions": ["R--NB-W", "R-I-B-W", "-A-N-OW"],
+      "hints": ["R--NB-W", "R-I-B-W", "-A-N-OW"],
       "clues": [
         "Colorful arc in the sky after rain",
         "Spectrum of colors forming an arc",
@@ -373,7 +373,7 @@
     {
       "word": "THUNDER",
       "length": 7,
-      "incomplete_versions": ["TH-N--R", "T-U-D-R", "-H-N-ER"],
+      "hints": ["TH-N--R", "T-U-D-R", "-H-N-ER"],
       "clues": [
         "Loud sound after lightning",
         "Rumbling sound following lightning flash",
@@ -383,7 +383,7 @@
     {
       "word": "VOLCANO",
       "length": 7,
-      "incomplete_versions": ["VOL--N-", "V-L-A-O", "-O-CAN-"],
+      "hints": ["VOL--N-", "V-L-A-O", "-O-CAN-"],
       "clues": [
         "Mountain that can erupt",
         "Geological formation that spews lava",
@@ -393,7 +393,7 @@
     {
       "word": "WELCOME",
       "length": 7,
-      "incomplete_versions": ["W-LC-M-", "-E-COM-", "WEL---E"],
+      "hints": ["W-LC-M-", "-E-COM-", "WEL---E"],
       "clues": [
         "Friendly greeting to guests",
         "What you say to someone arriving",
@@ -403,7 +403,7 @@
     {
       "word": "BACKYARD",
       "length": 8,
-      "incomplete_versions": ["B-C-Y--D", "-A-K-A-D", "BA----RD"],
+      "hints": ["B-C-Y--D", "-A-K-A-D", "BA----RD"],
       "clues": [
         "Outdoor space behind your house",
         "Private area for barbecues and games",
@@ -413,7 +413,7 @@
     {
       "word": "BIRTHDAY",
       "length": 8,
-      "incomplete_versions": ["BI--HD--", "B-R-H-A-", "-I-T-D-Y"],
+      "hints": ["BI--HD--", "B-R-H-A-", "-I-T-D-Y"],
       "clues": [
         "Annual celebration of when you were born",
         "Anniversary of the day you were born",
@@ -423,7 +423,7 @@
     {
       "word": "CALENDAR",
       "length": 8,
-      "incomplete_versions": ["C-L-N--R", "-A-E-D-R", "CA---DA-"],
+      "hints": ["C-L-N--R", "-A-E-D-R", "CA---DA-"],
       "clues": [
         "Chart showing days months and years",
         "Tool for tracking dates and appointments",
@@ -433,7 +433,7 @@
     {
       "word": "CHILDREN",
       "length": 8,
-      "incomplete_versions": ["C-I-D--N", "-H-L-R-N", "CH---RE-"],
+      "hints": ["C-I-D--N", "-H-L-R-N", "CH---RE-"],
       "clues": [
         "Young people under eighteen years old",
         "Kids who play and go to school",
@@ -443,7 +443,7 @@
     {
       "word": "COMPUTER",
       "length": 8,
-      "incomplete_versions": ["CO--U-E-", "-OM-U-E-", "C-M--T-R"],
+      "hints": ["CO--U-E-", "-OM-U-E-", "C-M--T-R"],
       "clues": [
         "Electronic device for processing data",
         "Machine that processes information digitally",
@@ -453,7 +453,7 @@
     {
       "word": "DINOSAUR",
       "length": 8,
-      "incomplete_versions": ["D-N-S--R", "-I-O-A-R", "DI---AU-"],
+      "hints": ["D-N-S--R", "-I-O-A-R", "DI---AU-"],
       "clues": [
         "Extinct giant reptile from prehistoric times",
         "Ancient creature like Tyrannosaurus Rex",
@@ -463,7 +463,7 @@
     {
       "word": "DOORBELL",
       "length": 8,
-      "incomplete_versions": ["D-O-B--L", "-O-R-E-L", "DO---EL-"],
+      "hints": ["D-O-B--L", "-O-R-E-L", "DO---EL-"],
       "clues": [
         "Button that rings when visitors arrive",
         "Signal device at house entrances",
@@ -473,7 +473,7 @@
     {
       "word": "ELEPHANT",
       "length": 8,
-      "incomplete_versions": ["EL--H--T", "-L-P-A-T", "E-E-H-N-"],
+      "hints": ["EL--H--T", "-L-P-A-T", "E-E-H-N-"],
       "clues": [
         "Largest land mammal",
         "Large gray mammal with a trunk",
@@ -483,7 +483,7 @@
     {
       "word": "HOSPITAL",
       "length": 8,
-      "incomplete_versions": ["H-S-I--L", "-O-P-T-L", "HO---TA-"],
+      "hints": ["H-S-I--L", "-O-P-T-L", "HO---TA-"],
       "clues": [
         "Place where sick people get treatment",
         "Medical facility with doctors and nurses",
@@ -493,7 +493,7 @@
     {
       "word": "KEYBOARD",
       "length": 8,
-      "incomplete_versions": ["KE--O--D", "K-Y-O-R-", "-E-B-A-D"],
+      "hints": ["KE--O--D", "K-Y-O-R-", "-E-B-A-D"],
       "clues": [
         "Input device with letters and numbers",
         "Set of keys for typing on computers",
@@ -503,7 +503,7 @@
     {
       "word": "LANGUAGE",
       "length": 8,
-      "incomplete_versions": ["L-N--A-E", "-A-G-A-E", "LA--U--E"],
+      "hints": ["L-N--A-E", "-A-G-A-E", "LA--U--E"],
       "clues": [
         "System of communication using words",
         "Method of expressing thoughts through speech",
@@ -513,7 +513,7 @@
     {
       "word": "MAGAZINE",
       "length": 8,
-      "incomplete_versions": ["M-G--I-E", "-A-A-I-E", "MA--Z--E"],
+      "hints": ["M-G--I-E", "-A-A-I-E", "MA--Z--E"],
       "clues": [
         "Periodic publication with articles and pictures",
         "Weekly or monthly reading material",
@@ -523,7 +523,7 @@
     {
       "word": "MOUNTAIN",
       "length": 8,
-      "incomplete_versions": ["MO--TA--", "M-U-T-I-", "-O-N-A-N"],
+      "hints": ["MO--TA--", "M-U-T-I-", "-O-N-A-N"],
       "clues": [
         "Very high natural elevation",
         "Large rocky peak rising from earth",
@@ -533,7 +533,7 @@
     {
       "word": "MUSHROOM",
       "length": 8,
-      "incomplete_versions": ["M-S-R--M", "-U-H-O-M", "MU---OO-"],
+      "hints": ["M-S-R--M", "-U-H-O-M", "MU---OO-"],
       "clues": [
         "Fungus that grows in damp places",
         "Umbrella shaped organism in forests",
@@ -543,7 +543,7 @@
     {
       "word": "NOTEBOOK",
       "length": 8,
-      "incomplete_versions": ["N-T-B--K", "-O-E-O-K", "NO---OO-"],
+      "hints": ["N-T-B--K", "-O-E-O-K", "NO---OO-"],
       "clues": [
         "Book with blank pages for writing",
         "Bound paper for taking notes",
@@ -553,7 +553,7 @@
     {
       "word": "PRINCESS",
       "length": 8,
-      "incomplete_versions": ["P-I-C--S", "-R-N-E-S", "PR---ES-"],
+      "hints": ["P-I-C--S", "-R-N-E-S", "PR---ES-"],
       "clues": [
         "Daughter of a king or queen",
         "Royal lady who lives in castles",
@@ -563,7 +563,7 @@
     {
       "word": "SANDWICH",
       "length": 8,
-      "incomplete_versions": ["S--DW--H", "S-N-W-C-", "-A-D-I-H"],
+      "hints": ["S--DW--H", "S-N-W-C-", "-A-D-I-H"],
       "clues": [
         "Food between two pieces of bread",
         "Meal consisting of filling between bread slices",
@@ -573,7 +573,7 @@
     {
       "word": "SURPRISE",
       "length": 8,
-      "incomplete_versions": ["S-R--I-E", "-U-P-I-E", "-U--RI-E"],
+      "hints": ["S-R--I-E", "-U-P-I-E", "-U--RI-E"],
       "clues": [
         "Unexpected event or gift",
         "Something that catches you off guard",
@@ -583,7 +583,7 @@
     {
       "word": "TRIANGLE",
       "length": 8,
-      "incomplete_versions": ["T-I-N--E", "-R-A-G-E", "TR---GL-"],
+      "hints": ["T-I-N--E", "-R-A-G-E", "TR---GL-"],
       "clues": [
         "Shape with three sides and corners",
         "Geometric figure with three angles",
@@ -593,7 +593,7 @@
     {
       "word": "UMBRELLA",
       "length": 8,
-      "incomplete_versions": ["U-B-E--A", "-M-R-L-A", "UM---LL-"],
+      "hints": ["U-B-E--A", "-M-R-L-A", "UM---LL-"],
       "clues": [
         "Portable shelter from rain or sun",
         "Collapsible canopy held over your head",
@@ -603,7 +603,7 @@
     {
       "word": "ADVENTURE",
       "length": 9,
-      "incomplete_versions": ["AD-EN--R-", "-DVE-T-R-", "A-V-N-U-E"],
+      "hints": ["AD-EN--R-", "-DVE-T-R-", "A-V-N-U-E"],
       "clues": [
         "Exciting and risky journey",
         "Bold expedition or quest",
@@ -613,7 +613,7 @@
     {
       "word": "AMBULANCE",
       "length": 9,
-      "incomplete_versions": ["A-B-L-N-E", "-M-U-A-CE", "A----ANCE"],
+      "hints": ["A-B-L-N-E", "-M-U-A-CE", "A----ANCE"],
       "clues": [
         "Emergency vehicle rushing sick people to hospitals",
         "Medical transport with sirens and lights",
@@ -623,7 +623,7 @@
     {
       "word": "ATTENTION",
       "length": 9,
-      "incomplete_versions": ["-TT--T-ON", "AT-E-T-O-", "-TT-N-I-N"],
+      "hints": ["-TT--T-ON", "AT-E-T-O-", "-TT-N-I-N"],
       "clues": [
         "What you pay when listening",
         "Focus or concentration given to something",
@@ -633,7 +633,7 @@
     {
       "word": "BEAUTIFUL",
       "length": 9,
-      "incomplete_versions": ["B--U-I-UL", "-E-U-I-UL", "BEA--I--L"],
+      "hints": ["B--U-I-UL", "-E-U-I-UL", "BEA--I--L"],
       "clues": [
         "Pleasing to look at",
         "Attractive and lovely",
@@ -643,7 +643,7 @@
     {
       "word": "BREAKFAST",
       "length": 9,
-      "incomplete_versions": ["BR--KF-S-", "B-E-K-A-T", "-R-A-F-ST"],
+      "hints": ["BR--KF-S-", "B-E-K-A-T", "-R-A-F-ST"],
       "clues": [
         "First meal of the day",
         "Morning meal to start the day",
@@ -653,7 +653,7 @@
     {
       "word": "BUTTERFLY",
       "length": 9,
-      "incomplete_versions": ["BUT--RF--", "B-T-E-F-Y", "-U-T-R-LY"],
+      "hints": ["BUT--RF--", "B-T-E-F-Y", "-U-T-R-LY"],
       "clues": [
         "Colorful flying insect with wings",
         "Insect that transforms from caterpillar",
@@ -663,7 +663,7 @@
     {
       "word": "CELEBRATE",
       "length": 9,
-      "incomplete_versions": ["C-L--R-TE", "-E-E-R-TE", "CEL-BR---"],
+      "hints": ["C-L--R-TE", "-E-E-R-TE", "CEL-BR---"],
       "clues": [
         "Mark a special occasion with joy",
         "Party or commemorate an event",
@@ -673,7 +673,7 @@
     {
       "word": "CHARACTER",
       "length": 9,
-      "incomplete_versions": ["C-A-A-T-R", "-H-R-C-ER", "C----CTER"],
+      "hints": ["C-A-A-T-R", "-H-R-C-ER", "C----CTER"],
       "clues": [
         "Person in a story or movie",
         "Individual's personality and moral qualities",
@@ -683,7 +683,7 @@
     {
       "word": "CHOCOLATE",
       "length": 9,
-      "incomplete_versions": ["CHO--LA--", "C-O-O-A-E", "-H-COL-T-"],
+      "hints": ["CHO--LA--", "C-O-O-A-E", "-H-COL-T-"],
       "clues": [
         "Sweet brown confection",
         "Cocoa-based sweet treat",
@@ -693,7 +693,7 @@
     {
       "word": "CHRISTMAS",
       "length": 9,
-      "incomplete_versions": ["C-R-S-M-S", "-H-I-T-AS", "CHR--T--S"],
+      "hints": ["C-R-S-M-S", "-H-I-T-AS", "CHR--T--S"],
       "clues": [
         "December 25th holiday",
         "Winter celebration with gifts and trees",
@@ -703,7 +703,7 @@
     {
       "word": "CROCODILE",
       "length": 9,
-      "incomplete_versions": ["C-O-O-I-E", "-R-C-D-LE", "C----DILE"],
+      "hints": ["C-O-O-I-E", "-R-C-D-LE", "C----DILE"],
       "clues": [
         "Large reptile with powerful jaws",
         "Scaly predator living in swamps",
@@ -713,7 +713,7 @@
     {
       "word": "DETECTIVE",
       "length": 9,
-      "incomplete_versions": ["D-T-C-I-E", "-E-E-T-VE", "D----TIVE"],
+      "hints": ["D-T-C-I-E", "-E-E-T-VE", "D----TIVE"],
       "clues": [
         "Investigator who solves crimes and mysteries",
         "Police officer searching for clues",
@@ -723,7 +723,7 @@
     {
       "word": "FURNITURE",
       "length": 9,
-      "incomplete_versions": ["F-R-I-U-E", "-U-N-T-RE", "F----TURE"],
+      "hints": ["F-R-I-U-E", "-U-N-T-RE", "F----TURE"],
       "clues": [
         "Tables chairs beds and other home items",
         "Wooden objects for sitting and storing",
@@ -733,7 +733,7 @@
     {
       "word": "HALLOWEEN",
       "length": 9,
-      "incomplete_versions": ["H-L-O-E-N", "-A-L-W-EN", "H----WEEN"],
+      "hints": ["H-L-O-E-N", "-A-L-W-EN", "H----WEEN"],
       "clues": [
         "October 31st costume and candy holiday",
         "Spooky celebration with trick or treating",
@@ -743,7 +743,7 @@
     {
       "word": "LIBRARIAN",
       "length": 9,
-      "incomplete_versions": ["L-B-A-I-N", "-I-R-R-AN", "L----RIAN"],
+      "hints": ["L-B-A-I-N", "-I-R-R-AN", "L----RIAN"],
       "clues": [
         "Person who organizes and manages books",
         "Professional helper in library buildings",
@@ -753,7 +753,7 @@
     {
       "word": "MESSENGER",
       "length": 9,
-      "incomplete_versions": ["M-S-E-G-R", "-E-S-N-ER", "M----NGER"],
+      "hints": ["M-S-E-G-R", "-E-S-N-ER", "M----NGER"],
       "clues": [
         "Person who delivers important information",
         "Carrier bringing news or packages",
@@ -763,7 +763,7 @@
     {
       "word": "PINEAPPLE",
       "length": 9,
-      "incomplete_versions": ["P-N-A-P-E", "-I-E-P-LE", "P----PPLE"],
+      "hints": ["P-N-A-P-E", "-I-E-P-LE", "P----PPLE"],
       "clues": [
         "Tropical fruit with spiky golden skin",
         "Sweet yellow fruit with crown top",
@@ -773,7 +773,7 @@
     {
       "word": "PROFESSOR",
       "length": 9,
-      "incomplete_versions": ["P-O-E-S-R", "-R-F-S-OR", "P----ES-OR"],
+      "hints": ["P-O-E-S-R", "-R-F-S-OR", "P----ES-OR"],
       "clues": [
         "Teacher at colleges and universities",
         "Academic expert with advanced degrees",
@@ -783,7 +783,7 @@
     {
       "word": "SCULPTURE",
       "length": 9,
-      "incomplete_versions": ["S-U-P-U-E", "-C-L-T-RE", "S----TURE"],
+      "hints": ["S-U-P-U-E", "-C-L-T-RE", "S----TURE"],
       "clues": [
         "Three dimensional artwork made from materials",
         "Carved or molded artistic creation",
@@ -793,7 +793,7 @@
     {
       "word": "TELEPHONE",
       "length": 9,
-      "incomplete_versions": ["TEL--H-N-", "-E-EPH-N-", "T-L-P-O-E"],
+      "hints": ["TEL--H-N-", "-E-EPH-N-", "T-L-P-O-E"],
       "clues": [
         "Device for talking to distant people",
         "Communication device invented by Bell",
@@ -803,7 +803,7 @@
     {
       "word": "BASKETBALL",
       "length": 10,
-      "incomplete_versions": ["B-S-E-B-L-", "-A-K-T-A-L", "B-----BALL"],
+      "hints": ["B-S-E-B-L-", "-A-K-T-A-L", "B-----BALL"],
       "clues": [
         "Sport played with hoops and bouncing ball",
         "Orange sphere used in court games",
@@ -813,7 +813,7 @@
     {
       "word": "CHIMPANZEE",
       "length": 10,
-      "incomplete_versions": ["C-I-P-N-E-", "-H-M-A-Z-E", "C-----NZEE"],
+      "hints": ["C-I-P-N-E-", "-H-M-A-Z-E", "C-----NZEE"],
       "clues": [
         "Intelligent ape similar to humans",
         "Primate that swings through jungle trees",
@@ -823,7 +823,7 @@
     {
       "word": "DICTIONARY",
       "length": 10,
-      "incomplete_versions": ["D--T-O-A-Y", "-I-T-O-A-Y", "DIC--ON---"],
+      "hints": ["D--T-O-A-Y", "-I-T-O-A-Y", "DIC--ON---"],
       "clues": [
         "Book that defines words and their meanings",
         "Reference guide for language",
@@ -833,7 +833,7 @@
     {
       "word": "GOVERNMENT",
       "length": 10,
-      "incomplete_versions": ["G--ER--EN-", "-O-E-N-E-T", "G-V-R-M-N-"],
+      "hints": ["G--ER--EN-", "-O-E-N-E-T", "G-V-R-M-N-"],
       "clues": [
         "Leading countries, states, and entities",
         "System of political administration",
@@ -843,7 +843,7 @@
     {
       "word": "HELICOPTER",
       "length": 10,
-      "incomplete_versions": ["H-L-C-P-E-", "-E-I-O-T-R", "H-----PTER"],
+      "hints": ["H-L-C-P-E-", "-E-I-O-T-R", "H-----PTER"],
       "clues": [
         "Aircraft with spinning rotor blades overhead",
         "Flying machine that hovers in air",
@@ -853,7 +853,7 @@
     {
       "word": "INSTRUMENT",
       "length": 10,
-      "incomplete_versions": ["I-S-R-M-N-", "-N-T-U-E-T", "I-----MENT"],
+      "hints": ["I-S-R-M-N-", "-N-T-U-E-T", "I-----MENT"],
       "clues": [
         "Tool for making music or measurements",
         "Device producing sounds like violin piano",
@@ -863,7 +863,7 @@
     {
       "word": "LIGHTHOUSE",
       "length": 10,
-      "incomplete_versions": ["L-G-T-O-S-", "-I-H-H-U-E", "L-----OUSE"],
+      "hints": ["L-G-T-O-S-", "-I-H-H-U-E", "L-----OUSE"],
       "clues": [
         "Tall tower with bright beacon light",
         "Coastal structure guiding ships safely",
@@ -873,7 +873,7 @@
     {
       "word": "MOTORCYCLE",
       "length": 10,
-      "incomplete_versions": ["M-T-R-Y-L-", "-O-O-C-C-E", "M-----YCLE"],
+      "hints": ["M-T-R-Y-L-", "-O-O-C-C-E", "M-----YCLE"],
       "clues": [
         "Two wheeled vehicle with engine power",
         "Fast bike requiring helmet protection",
@@ -883,7 +883,7 @@
     {
       "word": "NEWSLETTER",
       "length": 10,
-      "incomplete_versions": ["N-W-L-T-E-", "-E-S-E-T-R", "N-----TTER"],
+      "hints": ["N-W-L-T-E-", "-E-S-E-T-R", "N-----TTER"],
       "clues": [
         "Regular publication with news and updates",
         "Informational bulletin sent to subscribers",
@@ -893,7 +893,7 @@
     {
       "word": "PLAYGROUND",
       "length": 10,
-      "incomplete_versions": ["P--Y-R-U-D", "-L-Y-R-U-D", "PLA---R-U-"],
+      "hints": ["P--Y-R-U-D", "-L-Y-R-U-D", "PLA---R-U-"],
       "clues": [
         "Area with swings, slides, and equipment for children",
         "Outdoor space for kids to play",
@@ -903,7 +903,7 @@
     {
       "word": "POPULATION",
       "length": 10,
-      "incomplete_versions": ["P-P-L-T-O-", "-O-U-A-I-N", "P-----TION"],
+      "hints": ["P-P-L-T-O-", "-O-U-A-I-N", "P-----TION"],
       "clues": [
         "Total number of people in area",
         "All inhabitants of country or city",
@@ -913,7 +913,7 @@
     {
       "word": "RESTAURANT",
       "length": 10,
-      "incomplete_versions": ["R-S-A-R-N-", "-E-T-U-A-T", "R-----RANT"],
+      "hints": ["R-S-A-R-N-", "-E-T-U-A-T", "R-----RANT"],
       "clues": [
         "Business serving prepared meals to customers",
         "Dining establishment with professional chefs",
@@ -923,7 +923,7 @@
     {
       "word": "SKATEBOARD",
       "length": 10,
-      "incomplete_versions": ["S-A-E-O-R-", "-K-T-B-A-D", "S-----OARD"],
+      "hints": ["S-A-E-O-R-", "-K-T-B-A-D", "S-----OARD"],
       "clues": [
         "Board with wheels for riding and tricks",
         "Platform for rolling transportation and stunts",
@@ -933,7 +933,7 @@
     {
       "word": "STEPFATHER",
       "length": 10,
-      "incomplete_versions": ["S-E-F-T-E-", "-T-P-A-H-R", "S-----THER"],
+      "hints": ["S-E-F-T-E-", "-T-P-A-H-R", "S-----THER"],
       "clues": [
         "Mother's husband who isn't biological father",
         "Male parent through marriage not birth",
@@ -943,7 +943,7 @@
     {
       "word": "STRAWBERRY",
       "length": 10,
-      "incomplete_versions": ["S--A-B-R-Y", "-T-A-B-R-Y", "STR--BE---"],
+      "hints": ["S--A-B-R-Y", "-T-A-B-R-Y", "STR--BE---"],
       "clues": [
         "Red fruit with tiny seeds on the outside",
         "Sweet berry often used in desserts",
@@ -953,7 +953,7 @@
     {
       "word": "TABLESPOON",
       "length": 10,
-      "incomplete_versions": ["T-B-E-P-O-", "-A-L-S-O-N", "T-----POON"],
+      "hints": ["T-B-E-P-O-", "-A-L-S-O-N", "T-----POON"],
       "clues": [
         "Large spoon for serving and measuring",
         "Kitchen utensil holding three teaspoons volume",
@@ -963,7 +963,7 @@
     {
       "word": "TELEVISION",
       "length": 10,
-      "incomplete_versions": ["T-L-V-S-O-", "-E-E-I-I-N", "T-----SION"],
+      "hints": ["T-L-V-S-O-", "-E-E-I-I-N", "T-----SION"],
       "clues": [
         "Electronic screen displaying moving pictures and sound",
         "Entertainment device broadcasting shows and movies",
@@ -973,7 +973,7 @@
     {
       "word": "TOOTHBRUSH",
       "length": 10,
-      "incomplete_versions": ["T-O-H-R-S-", "-O-T-B-U-H", "T-----RUSH"],
+      "hints": ["T-O-H-R-S-", "-O-T-B-U-H", "T-----RUSH"],
       "clues": [
         "Tool with bristles for cleaning teeth",
         "Dental hygiene instrument used with paste",
@@ -983,7 +983,7 @@
     {
       "word": "TOURNAMENT",
       "length": 10,
-      "incomplete_versions": ["T-U-N-M-N-", "-O-R-A-E-T", "T-----MENT"],
+      "hints": ["T-U-N-M-N-", "-O-R-A-E-T", "T-----MENT"],
       "clues": [
         "Competition with multiple rounds and winners",
         "Organized contest between many participants",
@@ -993,7 +993,7 @@
     {
       "word": "WATERMELON",
       "length": 10,
-      "incomplete_versions": ["W-T-R-E-O-", "-A-E-M-L-N", "W-----ELON"],
+      "hints": ["W-T-R-E-O-", "-A-E-M-L-N", "W-----ELON"],
       "clues": [
         "Large green fruit with red interior",
         "Summer fruit containing black seeds",
