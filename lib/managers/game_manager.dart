@@ -6,12 +6,13 @@
 // 1. Game state (score, level, lives, current word)
 // 2. Word selection with hint/clue combination tracking
 // 3. Answer checking and scoring
-// 4. Level progression
+// 4. Level progression with proper word difficulty within each level
 //
 // KEY CONCEPTS:
 // - This is a "manager" class that coordinates game logic
 // - It uses the WordBank to get words but tracks which combinations are used
 // - It ensures players don't see the same word/hint/clue combo twice in a session
+// - FIXED: Now properly implements word length progression WITHIN each level
 // ============================================================================
 
 import 'dart:math';
@@ -40,7 +41,7 @@ class WordWithCombination {
   final Word word;
 
   /// Which hint to show (0, 1, or 2)
-  /// This maps to indices in word.incompleteVersions
+  /// This maps to indices in word.hints
   final int hintIndex;
 
   /// Which clue to show (0, 1, or 2)
@@ -56,8 +57,9 @@ class WordWithCombination {
 
   /// Gets the hint string to display
   ///
+  /// A hint is a hidden letter pattern showing part of the word
   /// Example: If hintIndex = 0 and word is BANANA, returns "B-N-N-"
-  String get hint => word.getIncompleteVersion(hintIndex);
+  String get hint => word.getHint(hintIndex);
 
   /// Gets the clue string to display
   ///
@@ -117,26 +119,62 @@ class GameManager {
   // ==========================================================================
 
   /// Current level (starts at 1)
-  /// Level determines word difficulty:
-  /// - Level 1: 6-letter words
-  /// - Level 2: 7-letter words
-  /// - Level 3: 8-letter words
-  /// - Level 4: 9-letter words
-  /// - Level 5+: 10-letter words
+  /// Level determines spawn rate and fall time:
+  /// - Level 1: Slow spawn, long fall time
+  /// - Level 2: Faster spawn, shorter fall time
+  /// - ...continues to...
+  /// - Level 5: Very fast spawn, very short fall time
+  ///
+  /// Word LENGTH is determined by position within level, NOT by level number
   int _currentLevel = 1;
 
   /// Current score (starts at 0)
-  /// Score increases with correct answers and decreases with wrong answers
+  /// Players earn 5 points per correct word
+  /// Score resets when advancing to next level
   int _score = 0;
 
-  /// Number of lives remaining (starts at 3)
-  /// Player loses a life for each wrong answer
+  /// Number of lives remaining (starts at 3 for Level 1)
+  /// Lives increase with each level:
+  /// - Level 1: 3 lives
+  /// - Level 2: 4 lives
+  /// - Level 3: 5 lives
+  /// - Level 4: 6 lives
+  /// - Level 5: 7 lives
+  ///
+  /// Player loses 1 life when a word hits the ground
   /// Game ends when lives reach 0
   int _lives = 3;
 
   /// The current word being guessed
   /// Null when no active word (e.g., between rounds or game over)
   WordWithCombination? _currentWord;
+
+  /// Tracks which word number we're on within the current level (0-19)
+  ///
+  /// IMPORTANT: This tracks position WITHIN the level, not across all words
+  /// Think of it as: "This is word #N of 20 in the current level"
+  ///
+  /// Examples:
+  /// - Word 1 of any level = _wordCounterWithinLevel = 0
+  /// - Word 2 of any level = _wordCounterWithinLevel = 1
+  /// - Word 20 of any level = _wordCounterWithinLevel = 19
+  ///
+  /// This counter is used to determine word difficulty progression:
+  /// - Counter 0-3 (Words 1-4): 6 letters (easiest)
+  /// - Counter 4-7 (Words 5-8): 7 letters
+  /// - Counter 8-11 (Words 9-12): 8 letters
+  /// - Counter 12-15 (Words 13-16): 9 letters
+  /// - Counter 16-19 (Words 17-20): 10 letters (hardest)
+  ///
+  /// Resets to 0 when advancing to the next level
+  ///
+  /// WHY WE NEED THIS:
+  /// According to documentation, each level should have the SAME word
+  /// progression pattern (6→7→8→9→10 letters). The difficulty comes from:
+  /// 1. Faster spawn rates between levels (timing)
+  /// 2. More lives to compensate (balancing)
+  /// NOT from using different word lengths for different levels
+  int _wordCounterWithinLevel = 0;
 
   // ==========================================================================
   // COMBINATION TRACKING
@@ -176,6 +214,10 @@ class GameManager {
   /// Gets the current word (null if no active word)
   WordWithCombination? get currentWord => _currentWord;
 
+  /// Gets which word we're on within the current level (0-19)
+  /// This is primarily for UI purposes
+  int get wordCounterWithinLevel => _wordCounterWithinLevel;
+
   /// Checks if the game is over (no lives left)
   bool get isGameOver => _lives <= 0;
 
@@ -205,8 +247,10 @@ class GameManager {
   void resetGame() {
     _currentLevel = 1;
     _score = 0;
-    _lives = 3;
+    _lives = 3;  // Level 1 always starts with 3 lives
     _currentWord = null;
+    _wordCounterWithinLevel = 0;  // Reset word counter to beginning
+    
     // Note: We do NOT clear _usedCombinations here
     // Combinations persist for the entire session (until app is closed)
 
@@ -232,7 +276,7 @@ class GameManager {
   /// Gets the next word for the player to guess
   ///
   /// This method:
-  /// 1. Determines word difficulty based on current level
+  /// 1. Determines word difficulty based on POSITION within level
   /// 2. Selects a random word of that difficulty
   /// 3. Finds an unused hint/clue combination for that word
   /// 4. Marks the combination as used
@@ -240,8 +284,9 @@ class GameManager {
   ///
   /// Returns null if no words available (should never happen with 100 words)
   WordWithCombination? getNextWord() {
-    // STEP 1: Determine word length based on level
-    int wordLength = _getLengthForLevel(_currentLevel);
+    // STEP 1: Determine word length based on POSITION WITHIN LEVEL
+    // This is the FIX: we now use _wordCounterWithinLevel instead of _currentLevel
+    int wordLength = _getLengthForCurrentPosition();
 
     // STEP 2: Try to find a word with available combinations
     Word? selectedWord;
@@ -304,30 +349,39 @@ class GameManager {
     );
 
     print(
-      '📝 Selected word: ${_currentWord!.word.word} (combination: $selectedCombination)',
+      '📝 Selected word: ${_currentWord!.word.word} (length: $wordLength, position: ${_wordCounterWithinLevel + 1}/20)',
     );
     return _currentWord;
   }
 
-  /// Determines word length based on game level
+  /// Determines word length based on POSITION WITHIN THE CURRENT LEVEL
   ///
-  /// Level 1: 6 letters (easiest)
-  /// Level 2: 7 letters
-  /// Level 3: 8 letters
-  /// Level 4: 9 letters
-  /// Level 5+: 10 letters (hardest)
-  int _getLengthForLevel(int level) {
-    switch (level) {
-      case 1:
-        return 6;
-      case 2:
-        return 7;
-      case 3:
-        return 8;
-      case 4:
-        return 9;
-      default:
-        return 10; // Level 5 and beyond use 10-letter words
+  /// This is the FIXED version - it uses word position, not level number
+  ///
+  /// Each level has 20 words with this progression:
+  /// - Position 0-3 (Words 1-4): 6 letters (easiest)
+  /// - Position 4-7 (Words 5-8): 7 letters
+  /// - Position 8-11 (Words 9-12): 8 letters
+  /// - Position 12-15 (Words 13-16): 9 letters
+  /// - Position 16-19 (Words 17-20): 10 letters (hardest)
+  ///
+  /// This pattern repeats identically for ALL 5 levels.
+  /// The difficulty difference between levels comes from:
+  /// - Timing (spawn rate and fall time)
+  /// - Lives available
+  /// NOT from word length
+  int _getLengthForCurrentPosition() {
+    // Use _wordCounterWithinLevel (0-19) to determine length
+    if (_wordCounterWithinLevel < 4) {
+      return 6;  // Position 0-3: 6-letter words
+    } else if (_wordCounterWithinLevel < 8) {
+      return 7;  // Position 4-7: 7-letter words
+    } else if (_wordCounterWithinLevel < 12) {
+      return 8;  // Position 8-11: 8-letter words
+    } else if (_wordCounterWithinLevel < 16) {
+      return 9;  // Position 12-15: 9-letter words
+    } else {
+      return 10;  // Position 16-19: 10-letter words
     }
   }
 
@@ -348,33 +402,26 @@ class GameManager {
     // If no combinations used yet, this will be an empty set
     Set<String> usedForWord = _usedCombinations[word.word] ?? {};
 
-    // Return only combinations that haven't been used
-    // .where() filters the list, keeping only items where the condition is true
-    return allCombinations
-        .where((combo) => !usedForWord.contains(combo))
-        .toList();
+    // Filter: return only combinations NOT in the used set
+    // allCombinations.where(...) keeps only unused combinations
+    return allCombinations.where((combo) => !usedForWord.contains(combo)).toList();
   }
 
-  /// Marks a combination as used for a specific word
+  /// Marks a specific combination as used
   ///
-  /// [word] - The word object
-  /// [combination] - The combination string (e.g., "0-2")
+  /// This prevents the same hint/clue pair from being shown again in this session
   void _markCombinationUsed(Word word, String combination) {
-    // If this word doesn't have an entry in the map yet, create an empty Set
-    if (!_usedCombinations.containsKey(word.word)) {
-      _usedCombinations[word.word] = {};
-    }
+    // Initialize the set for this word if it doesn't exist yet
+    _usedCombinations.putIfAbsent(word.word, () => {});
 
-    // Add the combination to the set
-    // If it's already there, Set automatically handles the duplicate (no effect)
+    // Add this combination to the word's used set
     _usedCombinations[word.word]!.add(combination);
   }
 
-  /// Resets the word that has the fewest used combinations
+  /// Resets combinations for the least-used word
   ///
-  /// This is a fallback for when all words of a certain length have
-  /// exhausted their combinations. We pick the word with the most
-  /// available combinations left and reset it.
+  /// This is a fallback when all words have exhausted their combinations.
+  /// We pick the word with the most available combinations left and reset it.
   void _resetLeastUsedWord(int wordLength) {
     // Get all words of the specified length
     List<Word> wordsOfLength = _wordBank.getWordsByLength(wordLength);
@@ -412,7 +459,7 @@ class GameManager {
   /// This method also:
   /// - Updates the score
   /// - Handles lives for wrong answers
-  /// - Advances the level for correct answers
+  /// - Advances the word counter
   bool checkAnswer(String guess) {
     // Safety check: make sure there's a current word
     if (_currentWord == null) {
@@ -436,38 +483,55 @@ class GameManager {
 
   /// Handles logic when player answers correctly
   void _handleCorrectAnswer() {
-    // Award points based on current level
-    // Higher levels = more points
-    int pointsEarned = _currentLevel * 10;
-    _score += pointsEarned;
+    // Award 5 points (fixed, not variable by level)
+    const int pointsPerWord = 5;
+    _score += pointsPerWord;
 
-    print('✅ Correct! +$pointsEarned points (Total: $_score)');
+    // Increment word counter
+    _wordCounterWithinLevel++;
 
-    // Advance to next level (max level 5)
+    print('✅ Correct! +$pointsPerWord points (Total: $_score)');
+
+    // Check if level is complete (20 correct words = 100 points)
+    if (_wordCounterWithinLevel >= 20) {
+      _advanceToNextLevel();
+    }
+  }
+
+  /// Advances to the next level
+  ///
+  /// Resets score and word counter, increases lives, updates level
+  void _advanceToNextLevel() {
     if (_currentLevel < 5) {
       _currentLevel++;
-      print('📈 Level up! Now at level $_currentLevel');
+      _score = 0;  // Reset score for new level
+      _wordCounterWithinLevel = 0;  // Reset word counter
+      
+      // Update lives for new level
+      // Level 1: 3, Level 2: 4, Level 3: 5, Level 4: 6, Level 5: 7
+      _lives = 2 + _currentLevel;
+
+      print('📈 Level up! Now at Level $_currentLevel');
+      print('🛡️ Lives reset to $_lives for this level');
     } else {
-      print('🏆 Already at max level!');
+      // Already at level 5 (last level)
+      print('🏆 Game Victory! Completed all 5 levels!');
+      // TODO: Show victory screen when UI is implemented
     }
   }
 
   /// Handles logic when player answers incorrectly
   void _handleWrongAnswer() {
-    // Deduct points
-    int pointsLost = 5;
-    _score = (_score - pointsLost).clamp(0, double.infinity).toInt();
-
     // Lose a life
     _lives--;
 
     print(
-      '❌ Wrong! -$pointsLost points, -1 life (Lives: $_lives, Score: $_score)',
+      '❌ Wrong! -1 life (Lives: $_lives, Score: $_score)',
     );
 
     // Check if game is over
     if (_lives <= 0) {
-      print('💀 Game Over!');
+      print('💀 Game Over! Failed at Level $_currentLevel');
     }
   }
 
@@ -513,7 +577,8 @@ class GameManager {
     print('GAME STATE');
     print('='.padRight(50, '='));
     print('Level: $_currentLevel');
-    print('Score: $_score');
+    print('Words Completed This Level: $_wordCounterWithinLevel/20');
+    print('Score This Level: $_score/100');
     print('Lives: $_lives');
     print('Current Word: ${_currentWord?.word.word ?? 'None'}');
     print('Game Over: $isGameOver');
