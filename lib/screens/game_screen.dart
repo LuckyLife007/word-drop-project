@@ -173,8 +173,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
   /// True once the player reaches 100 points (20 correct words).
   /// Prevents new spawns and input matching after the level is won.
-  /// Stage 6 will replace the placeholder snackbar with a real Level Complete
-  /// overlay that shows the time, best time, and navigation buttons.
+  /// When true, the Level Complete overlay is shown over the game screen.
   bool _isLevelComplete = false;
 
   /// Points scored this level (0–100). Each correct word = +5 points.
@@ -270,6 +269,31 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   /// The score text Color lerps from white to Color(0xFFFFD700) and back.
   late AnimationController _scoreHighlightController;
 
+  /// Drives the Game Over / Level Complete overlay entrance animation.
+  ///
+  /// ScaleTransition scales the overlay card from 0→1 over 500ms with
+  /// Curves.easeOut, making it "pop" into view from the centre of the screen.
+  /// (Section 6.4: "Overlay appear: ScaleTransition from center, 500ms, easeOut")
+  ///
+  /// This single controller is reused for either overlay — only one can ever
+  /// be shown at a time since the flags _isGameOver and _isLevelComplete are
+  /// mutually exclusive.
+  late AnimationController _overlayController;
+
+  // ==========================================================================
+  // LEVEL COMPLETE STATE  (populated in _handleLevelComplete, read by overlay)
+  // ==========================================================================
+
+  /// The player's actual completion time in milliseconds (0 until level ends).
+  /// Captured the moment the 20th word is matched — used by the overlay to
+  /// display the run time and compare against the previous best.
+  int _completionTimeMs = 0;
+
+  /// True if this run set a new personal best for this level.
+  /// Computed in _handleLevelComplete() BEFORE saveBestTime() is called,
+  /// so it reflects the comparison against the OLD record.
+  bool _isNewBestTime = false;
+
   // ==========================================================================
   // INPUT CONTROLLERS
   // ==========================================================================
@@ -298,6 +322,14 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     _scoreHighlightController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 150),
+    );
+
+    // 500ms ScaleTransition for the Game Over / Level Complete overlay card.
+    // Section 6.4: "Overlay appear: ScaleTransition from center, 500ms, easeOut".
+    // Starts at 0 (invisible) and is only forwarded when the overlay is shown.
+    _overlayController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 500),
     );
 
     // Spawn the first word after the first frame has been fully rendered.
@@ -354,6 +386,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     _groundHitControllers.clear();
 
     _scoreHighlightController.dispose();
+    _overlayController.dispose();
     _textController.dispose();
     _inputFocusNode.dispose();
 
@@ -593,8 +626,11 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
   /// Called when all lives reach zero.
   ///
-  /// Stops all running timers and freezes all falling animations.
-  /// Stage 6 will replace the snackbar with a proper Game Over overlay.
+  /// Called when all lives reach zero.
+  ///
+  /// Stops all running timers, freezes all falling animations, then triggers
+  /// the Game Over overlay (Stage 6) which slides in from the centre of the
+  /// screen and offers "Try Again", "Level Select", and "Main Menu" buttons.
   void _handleGameOver() {
     // Don't trigger game over if the level was already completed.
     // Edge case: a word could finish falling at the exact frame that the
@@ -619,16 +655,11 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       }
     }
 
-    // TODO Stage 6: Show the Game Over overlay widget.
-    // For now, show a placeholder so the player knows the game ended.
+    // Rebuild to show the overlay (which is gated on _isGameOver in build()),
+    // then animate the card from scale 0→1 over 500ms (Section 6.4).
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Game Over! (overlay coming in Stage 6)'),
-          duration: Duration(seconds: 3),
-          backgroundColor: Color(0xFFE53935),
-        ),
-      );
+      setState(() {}); // _isGameOver already true — this makes the overlay appear
+      _overlayController.forward();
     }
   }
 
@@ -637,8 +668,10 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   /// Stops the spawn timer and clock, freezes any still-falling words, then
   /// saves the player's best time and unlocks the next level via ProgressManager.
   ///
-  /// Stage 6 will replace the placeholder snackbar here with a proper Level
-  /// Complete overlay showing time, best time badge, and navigation buttons.
+  /// Captures the completion time and best-time info, saves progress via
+  /// ProgressManager, then triggers the Level Complete overlay (Stage 6)
+  /// which shows the time, a "New Record!" badge if applicable, and navigation
+  /// buttons: "Continue" (next level), "Replay Level", "Level Select".
   ///
   /// WHY freeze words instead of letting them fall?
   /// Once the level is won there is no gameplay reason to watch remaining words
@@ -664,6 +697,16 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       }
     }
 
+    // Capture best-time info BEFORE saving so we know if this run set a
+    // new record. ProgressManager.saveBestTime() updates _bestTimes in memory
+    // synchronously, so checking after the call would always look like a tie.
+    final int elapsedMs = _stopwatch.elapsed.inMilliseconds;
+    final int? previousBest =
+        ProgressManager().getBestTime(widget.level.levelNumber);
+
+    _completionTimeMs = elapsedMs;
+    _isNewBestTime = previousBest == null || elapsedMs < previousBest;
+
     // Save best time and unlock the next level.
     //
     // Both calls are fire-and-forget async — we don't need to await them
@@ -673,7 +716,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     //
     // unawaited() (from dart:async) is explicit that the discard is intentional,
     // suppressing the discarded_futures lint warning.
-    final int elapsedMs = _stopwatch.elapsed.inMilliseconds;
     unawaited(
       ProgressManager().saveBestTime(
         levelNumber: widget.level.levelNumber,
@@ -684,16 +726,10 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       unawaited(ProgressManager().unlockLevel(widget.level.levelNumber + 1));
     }
 
-    // TODO Stage 6: Show the Level Complete overlay widget.
-    // For now, show a placeholder so the player knows they won.
+    // Rebuild to show the overlay, then animate the card in (Section 6.4).
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Level Complete! (overlay coming in Stage 6)'),
-          duration: Duration(seconds: 3),
-          backgroundColor: Color(0xFF4CAF50),
-        ),
-      );
+      setState(() {}); // _isLevelComplete already true — overlay now in tree
+      _overlayController.forward();
     }
   }
 
@@ -929,6 +965,474 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   }
 
   // ==========================================================================
+  // OVERLAY NAVIGATION  (Stage 6)
+  // ==========================================================================
+
+  /// Formats a duration in milliseconds as "M:SS" (e.g. 95000ms → "1:35").
+  ///
+  /// Mirrors the format used by ProgressManager.getFormattedBestTime() so
+  /// time values are displayed consistently across the app.
+  String _formatTime(int ms) {
+    final int totalSeconds = ms ~/ 1000; // integer division — drops sub-seconds
+    final int minutes = totalSeconds ~/ 60;
+    final int seconds = totalSeconds % 60;
+    // padLeft(2, '0') ensures "1:05" not "1:5".
+    return '$minutes:${seconds.toString().padLeft(2, '0')}';
+  }
+
+  /// Returns an encouraging message for the Game Over overlay based on score.
+  ///
+  /// The message becomes more positive as the score gets higher, to motivate
+  /// the player to try again based on how close they were to winning.
+  String _getEncouragementMessage() {
+    if (_score == 0) return 'Every champion was once a beginner!';
+    if (_score <= 20) return "You're just warming up!";
+    if (_score <= 40) return "You're getting the hang of it!";
+    if (_score <= 60) return 'More than halfway — try again!';
+    if (_score <= 80) return 'So close! One more attempt!';
+    return "Almost there — you've got this!";
+  }
+
+  /// Restarts the current level in a fresh GameScreen instance.
+  ///
+  /// pushReplacement pops this GameScreen and immediately pushes a new one
+  /// at the same stack position, so the back button still returns to
+  /// LevelSelectionScreen.
+  void _onTryAgain() {
+    Navigator.pushReplacement(
+      context,
+      PageRouteBuilder<void>(
+        // Build a brand new GameScreen for the same level.
+        // initState() will reinitialise GameManager and reset all counters.
+        pageBuilder: (_, _, _) => GameScreen(level: widget.level),
+        // Simple fade transition — matches the rest of the app.
+        transitionsBuilder: (_, animation, _, child) =>
+            FadeTransition(opacity: animation, child: child),
+        transitionDuration: const Duration(milliseconds: 300),
+      ),
+    );
+  }
+
+  /// Starts the next level (Level Complete overlay only).
+  ///
+  /// kAllLevels is 0-indexed, so kAllLevels[levelNumber] is the level AFTER
+  /// the current one (e.g. levelNumber=1 → index 1 = Level 2).
+  /// This is safe because _onContinue is only shown when levelNumber < 5.
+  void _onContinue() {
+    final LevelConfig nextLevel = kAllLevels[widget.level.levelNumber];
+    Navigator.pushReplacement(
+      context,
+      PageRouteBuilder<void>(
+        pageBuilder: (_, _, _) => GameScreen(level: nextLevel),
+        transitionsBuilder: (_, animation, _, child) =>
+            FadeTransition(opacity: animation, child: child),
+        transitionDuration: const Duration(milliseconds: 300),
+      ),
+    );
+  }
+
+  /// Returns to LevelSelectionScreen by popping this GameScreen off the stack.
+  ///
+  /// Navigation stack: MainMenuScreen → LevelSelectionScreen → GameScreen.
+  /// A single pop returns to the level list.
+  void _onGoToLevelSelect() {
+    Navigator.pop(context);
+  }
+
+  /// Returns all the way to MainMenuScreen by popping until the root route.
+  ///
+  /// popUntil with route.isFirst pops both GameScreen and LevelSelectionScreen,
+  /// landing back on MainMenuScreen at the bottom of the stack.
+  void _onGoToMainMenu() {
+    Navigator.popUntil(context, (route) => route.isFirst);
+  }
+
+  // ==========================================================================
+  // OVERLAY WIDGETS  (Stage 6)
+  // ==========================================================================
+
+  /// The Game Over overlay card.
+  ///
+  /// Shows the final score, level name, and an encouragement message, then
+  /// offers three navigation buttons: Try Again, Level Select, Main Menu.
+  ///
+  /// Entry animation: ScaleTransition driven by _overlayController (0→1, 500ms,
+  /// Curves.easeOut) so the card "pops in" from the centre of the screen.
+  Widget _buildGameOverOverlay() {
+    return Container(
+      // Semi-transparent black backdrop dims the frozen game beneath.
+      color: Colors.black.withValues(alpha: 0.65),
+      child: Center(
+        child: ScaleTransition(
+          // Animated scale from 0 to 1 — creates the "pop in" effect.
+          scale: CurvedAnimation(
+            parent: _overlayController,
+            curve: Curves.easeOut,
+          ),
+          child: Container(
+            margin: const EdgeInsets.symmetric(horizontal: 28.0),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(24.0),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.35),
+                  blurRadius: 24.0,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 28.0,
+                vertical: 32.0,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min, // Shrink-wrap to content
+                children: [
+                  // ── ICON ──────────────────────────────────────────────────
+                  const Icon(
+                    Icons.heart_broken_rounded,
+                    color: Color(0xFFE53935), // Red
+                    size: 52.0,
+                  ),
+                  const SizedBox(height: 10.0),
+
+                  // ── TITLE ─────────────────────────────────────────────────
+                  const Text(
+                    'GAME OVER',
+                    style: TextStyle(
+                      fontSize: 26.0,
+                      fontWeight: FontWeight.w900,
+                      color: Color(0xFF333333),
+                      letterSpacing: 2.0,
+                    ),
+                  ),
+                  const SizedBox(height: 22.0),
+
+                  // ── STATS ─────────────────────────────────────────────────
+                  _buildOverlayStatRow('Level', widget.level.name),
+                  const SizedBox(height: 8.0),
+                  _buildOverlayStatRow('Score', '$_score / 100'),
+                  const SizedBox(height: 18.0),
+
+                  // ── ENCOURAGEMENT MESSAGE ─────────────────────────────────
+                  // Changes based on score — the closer the player was to 100,
+                  // the more motivating the message (see _getEncouragementMessage).
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14.0,
+                      vertical: 10.0,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF3F0FA), // Faint purple tint
+                      borderRadius: BorderRadius.circular(10.0),
+                    ),
+                    child: Text(
+                      _getEncouragementMessage(),
+                      style: const TextStyle(
+                        fontSize: 14.0,
+                        fontStyle: FontStyle.italic,
+                        color: Color(0xFF555555),
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                  const SizedBox(height: 28.0),
+
+                  // ── BUTTONS ───────────────────────────────────────────────
+                  // Try Again is the primary CTA (most likely action).
+                  _buildOverlayButton(
+                    'Try Again',
+                    onPressed: _onTryAgain,
+                    isPrimary: true,
+                  ),
+                  const SizedBox(height: 10.0),
+                  _buildOverlayButton(
+                    'Level Select',
+                    onPressed: _onGoToLevelSelect,
+                  ),
+                  const SizedBox(height: 10.0),
+                  _buildOverlayButton(
+                    'Main Menu',
+                    onPressed: _onGoToMainMenu,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// The Level Complete overlay card.
+  ///
+  /// Shows the score (always 100/100), the player's completion time, and a
+  /// "New Record!" badge in gold if this run beat the previous best time.
+  ///
+  /// Buttons:
+  ///   Levels 1–4: Continue (next level), Replay Level, Level Select
+  ///   Level 5 (final): No "Continue" — instead offers Replay and Main Menu
+  ///
+  /// Entry animation: same ScaleTransition as the Game Over overlay.
+  Widget _buildLevelCompleteOverlay() {
+    // Level 5 is the final level — "Continue" doesn't exist, and we show
+    // a special "YOU WIN!" title and a Main Menu button instead.
+    final bool isLastLevel = widget.level.levelNumber == 5;
+
+    return Container(
+      color: Colors.black.withValues(alpha: 0.65),
+      child: Center(
+        child: ScaleTransition(
+          scale: CurvedAnimation(
+            parent: _overlayController,
+            curve: Curves.easeOut,
+          ),
+          child: Container(
+            margin: const EdgeInsets.symmetric(horizontal: 28.0),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(24.0),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.35),
+                  blurRadius: 24.0,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 28.0,
+                vertical: 32.0,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // ── ICON ──────────────────────────────────────────────────
+                  Icon(
+                    // Trophy for full game clear; checkmark for standard completion
+                    isLastLevel ? Icons.emoji_events_rounded : Icons.check_circle_rounded,
+                    color: const Color(0xFFFFD700), // Gold (#FFD700 per Section 1.4)
+                    size: 52.0,
+                  ),
+                  const SizedBox(height: 10.0),
+
+                  // ── TITLE ─────────────────────────────────────────────────
+                  Text(
+                    isLastLevel ? 'YOU WIN!' : 'LEVEL COMPLETE!',
+                    style: const TextStyle(
+                      fontSize: 24.0,
+                      fontWeight: FontWeight.w900,
+                      color: Color(0xFF333333),
+                      letterSpacing: 1.5,
+                    ),
+                  ),
+
+                  // Sub-title only for the final level
+                  if (isLastLevel) ...[
+                    const SizedBox(height: 4.0),
+                    const Text(
+                      'All 5 levels conquered!',
+                      style: TextStyle(
+                        fontSize: 14.0,
+                        color: Color(0xFF888888),
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 22.0),
+
+                  // ── STATS ─────────────────────────────────────────────────
+                  _buildOverlayStatRow('Score', '100 / 100'),
+                  const SizedBox(height: 8.0),
+                  _buildOverlayStatRow('Time', _formatTime(_completionTimeMs)),
+                  const SizedBox(height: 8.0),
+
+                  // Best time row — shows "New Record!" badge in gold if this
+                  // run beat the previous best, otherwise shows the existing best.
+                  if (_isNewBestTime)
+                    _buildNewBestBadgeRow()
+                  else
+                    _buildOverlayStatRow(
+                      'Best',
+                      // getBestTime now reflects the just-saved value (or the
+                      // existing best if this run was slower than the prior best).
+                      _formatTime(
+                        ProgressManager().getBestTime(widget.level.levelNumber) ??
+                            _completionTimeMs,
+                      ),
+                    ),
+                  const SizedBox(height: 28.0),
+
+                  // ── BUTTONS ───────────────────────────────────────────────
+                  // Levels 1-4: Continue to next level is the primary CTA.
+                  // Level 5: No "Continue" — Replay becomes the primary CTA.
+                  if (!isLastLevel) ...[
+                    _buildOverlayButton(
+                      'Continue',
+                      onPressed: _onContinue,
+                      isPrimary: true,
+                    ),
+                    const SizedBox(height: 10.0),
+                    _buildOverlayButton(
+                      'Replay Level',
+                      onPressed: _onTryAgain,
+                    ),
+                    const SizedBox(height: 10.0),
+                    _buildOverlayButton(
+                      'Level Select',
+                      onPressed: _onGoToLevelSelect,
+                    ),
+                  ] else ...[
+                    // Final level complete — offer replay + menu options.
+                    _buildOverlayButton(
+                      'Replay Level',
+                      onPressed: _onTryAgain,
+                      isPrimary: true,
+                    ),
+                    const SizedBox(height: 10.0),
+                    _buildOverlayButton(
+                      'Level Select',
+                      onPressed: _onGoToLevelSelect,
+                    ),
+                    const SizedBox(height: 10.0),
+                    _buildOverlayButton(
+                      'Main Menu',
+                      onPressed: _onGoToMainMenu,
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ==========================================================================
+  // OVERLAY HELPER WIDGETS  (Stage 6)
+  // ==========================================================================
+
+  /// A single label + value row inside an overlay card.
+  ///
+  /// Label is muted gray (left), value is dark bold (right).
+  /// Used for: Level name, Score, Time, Best time.
+  Widget _buildOverlayStatRow(String label, String value) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 15.0,
+            color: Color(0xFF888888), // Muted gray label
+          ),
+        ),
+        Text(
+          value,
+          style: const TextStyle(
+            fontSize: 15.0,
+            fontWeight: FontWeight.bold,
+            color: Color(0xFF333333),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// The "New Record!" badge row shown instead of the normal Best row when the
+  /// player beats their previous best time.
+  ///
+  /// Displays a star icon + time + "New Record!" all in gold (#FFD700).
+  Widget _buildNewBestBadgeRow() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        const Text(
+          'Best',
+          style: TextStyle(
+            fontSize: 15.0,
+            color: Color(0xFF888888),
+          ),
+        ),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(
+              Icons.star_rounded,
+              color: Color(0xFFFFD700), // Gold
+              size: 16.0,
+            ),
+            const SizedBox(width: 4.0),
+            Text(
+              // Show the new best time (= the time just achieved).
+              '${_formatTime(_completionTimeMs)}  New Record!',
+              style: const TextStyle(
+                fontSize: 15.0,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFFFFD700), // Gold
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  /// A full-width button for use inside an overlay card.
+  ///
+  /// [isPrimary] = true  → filled purple ElevatedButton (main CTA)
+  /// [isPrimary] = false → outlined button (secondary actions)
+  Widget _buildOverlayButton(
+    String label, {
+    required VoidCallback onPressed,
+    bool isPrimary = false,
+  }) {
+    return SizedBox(
+      width: double.infinity,
+      child: isPrimary
+          ? ElevatedButton(
+              onPressed: onPressed,
+              style: ElevatedButton.styleFrom(
+                // Deep purple matches the app's header gradient bottom colour.
+                backgroundColor: const Color(0xFF764ba2),
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 14.0),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12.0),
+                ),
+                elevation: 2,
+              ),
+              child: Text(
+                label,
+                style: const TextStyle(
+                  fontSize: 16.0,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            )
+          : OutlinedButton(
+              onPressed: onPressed,
+              style: OutlinedButton.styleFrom(
+                foregroundColor: const Color(0xFF764ba2),
+                side: const BorderSide(color: Color(0xFF764ba2), width: 1.5),
+                padding: const EdgeInsets.symmetric(vertical: 12.0),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12.0),
+                ),
+              ),
+              child: Text(
+                label,
+                style: const TextStyle(fontSize: 15.0),
+              ),
+            ),
+    );
+  }
+
+  // ==========================================================================
   // BUILD
   // ==========================================================================
 
@@ -955,16 +1459,40 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
         ),
 
         child: SafeArea(
-          child: Column(
+          // Stack lets us layer the Game Over / Level Complete overlays on top
+          // of the main game content without disrupting the Column's layout.
+          child: Stack(
             children: [
-              // HEADER: level name, score, lives hearts, timer
-              _buildHeader(),
+              // ALL GAME CONTENT — fills the full SafeArea via Positioned.fill.
+              // This ensures the Column always occupies the same space regardless
+              // of whether an overlay is currently showing on top of it.
+              Positioned.fill(
+                child: Column(
+                  children: [
+                    // HEADER: level name, score, lives hearts, timer
+                    _buildHeader(),
 
-              // GAME AREA: words fall here (Expanded = fills remaining space)
-              Expanded(child: _buildGameArea()),
+                    // GAME AREA: words fall here (Expanded = fills remaining space)
+                    Expanded(child: _buildGameArea()),
 
-              // INPUT AREA: text field + pause button
-              _buildInputArea(),
+                    // INPUT AREA: text field + pause button
+                    _buildInputArea(),
+                  ],
+                ),
+              ),
+
+              // GAME OVER OVERLAY (Section 2.6 / 6.4)
+              // Appears when lives hit 0. ScaleTransition animates the card
+              // from scale 0→1 over 500ms with Curves.easeOut so it "pops in"
+              // from the centre. Semi-transparent backdrop dims the game below.
+              if (_isGameOver)
+                Positioned.fill(child: _buildGameOverOverlay()),
+
+              // LEVEL COMPLETE OVERLAY (Section 2.6 / 6.4)
+              // Appears when the player correctly guesses all 20 words.
+              // Same entry animation as the Game Over overlay.
+              if (_isLevelComplete)
+                Positioned.fill(child: _buildLevelCompleteOverlay()),
             ],
           ),
         ),

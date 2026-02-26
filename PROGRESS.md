@@ -1,7 +1,7 @@
 # Word Drop — Development Progress
 
 **Last Updated**: February 26, 2026
-**Current Build**: Game Screen Stages 1–5 + pre-Stage-6 fixes (score cap, level complete, calculated-valid-range overlap prevention)
+**Current Build**: Game Screen Stages 1–6 (overlays: Game Over + Level Complete)
 **Repository**: https://github.com/LuckyLife007/word-drop-project
 
 ---
@@ -219,10 +219,15 @@ App Launch
 - `_handleLevelComplete()`: cancels spawn + clock timers, freezes falling words, saves best time via `ProgressManager.saveBestTime()`, unlocks next level via `ProgressManager.unlockLevel()`, placeholder snackbar (Stage 6 will add real overlay)
 - `_handleGameOver()` guards against firing if `_isLevelComplete` is already true (edge case: last word hits ground same frame as 20th word is matched — Level Complete wins)
 
-**Stage 6 — Game Over and Level Complete overlays**
-- Lives reach 0: Game Over overlay (score, "Try Again" / "Level Select" / "Main Menu")
-- Score reaches 100: Level Complete overlay (time, best time if new record, "Continue" / "Replay" / "Level Select")
-- Level Complete triggers `ProgressManager.unlockLevel()` and `saveBestTime()`
+**Stage 6 — Game Over and Level Complete overlays** ✅
+- `_overlayController`: single 500ms `AnimationController` driving a `ScaleTransition` (0→1, `Curves.easeOut`) shared by both overlays (only one can ever show at once); initialized in `initState`, disposed in `dispose`
+- `_completionTimeMs` + `_isNewBestTime`: captured in `_handleLevelComplete()` BEFORE calling `saveBestTime()` so the "New Record!" badge reflects the correct comparison
+- **`build()` Stack refactor**: `SafeArea` child changed from a bare `Column` to a `Stack` with `Positioned.fill(Column(...))` at the bottom and the two conditional overlays on top
+- **Game Over overlay** (`_buildGameOverOverlay()`): white card on 65% black backdrop; shows level name, score, encouragement message; buttons: "Try Again" (primary), "Level Select", "Main Menu"; `_getEncouragementMessage()` varies text based on score
+- **Level Complete overlay** (`_buildLevelCompleteOverlay()`): white card on 65% black backdrop; shows score (100/100), time, best time or "⭐ New Record!" badge in gold; buttons Levels 1–4: "Continue" (primary), "Replay Level", "Level Select"; Level 5 ("YOU WIN!"): "Replay Level" (primary), "Level Select", "Main Menu"; trophy icon for Level 5, checkmark for others
+- Helper widgets: `_buildOverlayStatRow()`, `_buildNewBestBadgeRow()`, `_buildOverlayButton()` (primary = filled purple, secondary = outlined)
+- Navigation methods: `_onTryAgain()` / `_onContinue()` use `Navigator.pushReplacement` + fade transition; `_onGoToLevelSelect()` uses `Navigator.pop`; `_onGoToMainMenu()` uses `Navigator.popUntil(isFirst)`
+- `_handleGameOver()` / `_handleLevelComplete()` doc comments updated (no longer reference snackbar placeholders)
 
 **Stage 7 — Pause**
 - Pause button in input area
@@ -263,7 +268,7 @@ word_drop/
 │   └── screens/
 │       ├── main_menu_screen.dart    ✅ main menu UI
 │       ├── level_selection_screen.dart ✅ level list UI
-│       └── game_screen.dart         ✅ Stages 1–5 — layout, fall, spawn, match, lives
+│       └── game_screen.dart         ✅ Stages 1–6 — layout, fall, spawn, match, lives, overlays
 ├── test/
 │   └── widget_test.dart             ✅ updated for WordDropApp
 └── pubspec.yaml                     ✅ dependencies configured
