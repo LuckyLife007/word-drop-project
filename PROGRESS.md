@@ -1,7 +1,7 @@
 # Word Drop — Development Progress
 
 **Last Updated**: February 26, 2026
-**Current Build**: Game Screen Stages 1–3 (spawn timer + multiple words)
+**Current Build**: Game Screen Stages 1–5 + pre-Stage-6 fixes (score cap, level complete, calculated-valid-range overlap prevention)
 **Repository**: https://github.com/LuckyLife007/word-drop-project
 
 ---
@@ -166,7 +166,7 @@ App Launch
 
 ## What Comes Next
 
-### ✅ Game Screen — Stages 1–3 Complete
+### ✅ Game Screen — Stages 1–5 Complete
 
 **Stage 1 — Static layout** ✅
 - Header (top): score display, heart icons for lives, level name in gold, timer
@@ -191,15 +191,33 @@ App Launch
 
 ### 🔲 Game Screen — Remaining Stages
 
-**Stage 4 — Input matching**
-- `onChanged` callback checks input against all currently falling words
-- Match found: word removed, green flash animation (500ms), input cleared, score +5
-- No match: no feedback, player keeps typing
+**Stage 4 — Input matching** ✅
+- `_onInputChanged()`: live check every keystroke; length guard ≥4 chars (Section 6.3), normalises to uppercase
+- `_onInputSubmitted()`: also triggers match check (Section 6.3: "Enter key: trigger check via onSubmitted")
+- Match found: fall frozen, score +5, `_wordsCompleted++`, `GameManager.recordCorrectWord()`, field cleared + refocused instantly
+- Per-word exit animation (Section 5.5 / 6.5): 500ms — scale 1.0→1.05 + green tint in (0–250ms), then opacity 1.0→0.0 fade out (250–500ms); word removed on completion
+- `_matchControllers` map: one `AnimationController` per matched word (supports simultaneous exits)
+- `// ignore` annotations removed from `_score` and `_wordsCompleted` (both now actively used)
 
-**Stage 5 — Lives and scoring**
-- Word reaches ground: red pulse animation (600ms), life deducted, word removed
-- Lives display updates (hearts turn from red to white as lost)
-- Score updates in header
+**Stage 5 — Lives and scoring** ✅
+- **Overlap fix**: `_spawnWord()` now checks x AND y — only blocks a position if both axes would overlap; skips spawn cycle if no valid position found (screen full)
+- `_gameAreaHeight`: captured by LayoutBuilder, used to compute `_maxFallY` getter for y-overlap threshold
+- `_onWordHitGround()`: deducts life, triggers per-word 600ms red exit animation (scale 1.0→1.05, red tint in, then opacity→0 fade)
+- `_groundHitControllers` map: mirrors `_matchControllers` — one per ground-hit word, disposed + removed on completion
+- `_isGameOver` flag: set when `_lives` reaches 0; guards `_spawnWord()` and `_onInputChanged()` from running
+- `_handleGameOver()`: cancels spawn + clock timers, freezes all falling words, placeholder snackbar (Stage 6 will add real overlay)
+- `_scoreHighlightController`: 150ms forward + 150ms reverse = 300ms gold flash on score text after correct guess (Section 6.5)
+- `_buildStatBlock()` updated with optional `highlightController` param — score stat uses it, timer stat doesn't
+
+**Stage 5 (pre-Stage-6 fixes)** ✅
+- **Calculated-valid-range overlap prevention**: `_spawnWord()` now computes which x ranges are guaranteed clear instead of blind random retries (O(n), deterministic, uniform distribution); replaces the earlier 10-retry approach
+  - Algorithm: start with `[(0.0, usableWidth)]`, subtract each near-top word's blocked zone `[existingX ± minXSeparation]`, pick a random pixel from what remains
+  - Skips spawn cycle if no valid ranges remain (screen truly full)
+- **Score cap**: `_score` is now clamped to 100 (`(_score + 5).clamp(0, 100)`) — prevents "105/100" display
+- **Level complete detection**: `_onInputChanged()` checks `if (_wordsCompleted >= 20)` after each correct guess and calls `_handleLevelComplete()`
+- `_isLevelComplete` flag: mirrors `_isGameOver` — guards `_spawnWord()`, `_onInputChanged()`, and `_onWordHitGround()` once the level is won
+- `_handleLevelComplete()`: cancels spawn + clock timers, freezes falling words, saves best time via `ProgressManager.saveBestTime()`, unlocks next level via `ProgressManager.unlockLevel()`, placeholder snackbar (Stage 6 will add real overlay)
+- `_handleGameOver()` guards against firing if `_isLevelComplete` is already true (edge case: last word hits ground same frame as 20th word is matched — Level Complete wins)
 
 **Stage 6 — Game Over and Level Complete overlays**
 - Lives reach 0: Game Over overlay (score, "Try Again" / "Level Select" / "Main Menu")
@@ -245,7 +263,7 @@ word_drop/
 │   └── screens/
 │       ├── main_menu_screen.dart    ✅ main menu UI
 │       ├── level_selection_screen.dart ✅ level list UI
-│       └── game_screen.dart         ✅ Stages 1–3 — layout, falling words, spawn timer
+│       └── game_screen.dart         ✅ Stages 1–5 — layout, fall, spawn, match, lives
 ├── test/
 │   └── widget_test.dart             ✅ updated for WordDropApp
 └── pubspec.yaml                     ✅ dependencies configured

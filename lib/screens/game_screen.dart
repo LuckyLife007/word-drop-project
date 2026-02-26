@@ -4,19 +4,22 @@
 // This is the main gameplay screen — where words fall from the sky and the
 // player types answers to catch them before they hit the ground.
 //
-// STAGE 3 (THIS FILE): Spawn timer + multiple simultaneous words.
-// Words now spawn automatically at regular intervals (LevelConfig.spawnDelay)
-// using Timer.periodic. Multiple words can fall at once. New words are placed
-// at x positions that don't overlap with existing ones (20px buffer).
+// STAGE 5 (THIS FILE): Lives and scoring — words that hit the ground now cost
+// a life. Lives display updates in real time. When all lives are gone the game
+// stops. Also fixes overlap prevention (x+y 2D check) and adds the gold score
+// highlight animation on correct guess.
 //
 // WHAT IS IN THIS STAGE:
-//   - Everything from Stages 1 & 2
-//   - _startSpawnTimer(): starts a Timer.periodic that fires every spawnDelay ms
-//   - _wordsCompleted counter: tracks correct guesses (drives word length progression)
-//   - _gameAreaWidth field: set by LayoutBuilder, used for pixel-accurate overlap checks
-//   - _spawnWord() overlap prevention: up to 10 retries to find a non-overlapping x
-//   - Max 10 simultaneous words cap (per Section 5.2)
-//   - Timer? _spawnTimer: stored so it can be cancelled on dispose/pause
+//   - Everything from Stages 1–4
+//   - OVERLAP FIX: _spawnWord() now checks BOTH x AND y positions so words
+//     can never visually overlap regardless of screen width (Section 5.1)
+//   - _gameAreaHeight: tracked via LayoutBuilder for accurate y-overlap check
+//   - _onWordHitGround(): deducts a life, triggers red pulse animation
+//   - Red pulse (600ms): scale 1.0→1.05, red tint in, then opacity→0 fade out
+//   - _groundHitControllers: per-word red exit animation (mirrors _matchControllers)
+//   - _isGameOver flag: stops spawning + input when all lives are gone
+//   - _handleGameOver(): stops all timers/animations, placeholder for Stage 6 overlay
+//   - _scoreHighlightController: 300ms gold flash on score text after correct guess
 //
 // PER DOCUMENTATION:
 //
@@ -43,9 +46,9 @@
 // STAGE ROADMAP (see PROGRESS.md for full details):
 //   Stage 1: Static layout — three zones visible and correctly sized
 //   Stage 2: Single falling word using AnimationController + Curves.linear
-//   Stage 3 (THIS): Spawn timer + multiple simultaneous words + overlap prevention
-//   Stage 4:  Input matching — onChanged checks typed text against words
-//   Stage 5:  Lives and scoring — ground hit deducts life, correct guess +5pts
+//   Stage 3: Spawn timer + multiple simultaneous words + overlap prevention
+//   Stage 4: Input matching — onChanged checks typed text against words
+//   Stage 5 (THIS): Lives + scoring — ground hit deducts life, overlap fix
 //   Stage 6:  Game Over and Level Complete overlays
 //   Stage 7:  Pause overlay — freezes all animations and timers
 //
@@ -55,12 +58,20 @@
 //              LayoutBuilder for game area dimensions, stopwatch timer
 //   - Stage 3: Added spawn timer, overlap prevention, _wordsCompleted counter,
 //              _gameAreaWidth tracking, max-10-words cap
+//   - Stage 4: Added input matching (_onInputChanged), green flash animation,
+//              active score + wordsCompleted increments, GameManager.recordCorrectWord()
+//   - Stage 5: Lives system, ground hit red pulse, game over detection,
+//              score gold highlight, 2D overlap fix (_gameAreaHeight added)
+//   - Stage 5 (pre-Stage-6 fixes): Calculated-valid-range overlap prevention
+//              replaces 10-retry approach; score capped at 100 max; level
+//              complete detection added (_isLevelComplete + _handleLevelComplete)
 // ============================================================================
 
 import 'dart:async';  // For Timer (used by the stopwatch display updater)
 import 'dart:math';   // For Random (used to randomise word x positions)
 import 'package:flutter/material.dart';
-import '../managers/game_manager.dart'; // Provides the words to display
+import '../managers/game_manager.dart';      // Provides the words to display
+import '../managers/progress_manager.dart'; // Saves best time + unlocks next level
 import '../models/level_config.dart';
 
 // ============================================================================
@@ -152,12 +163,22 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
   /// Lives remaining this level.
   /// Starts at widget.level.lives (3 for Level 1, up to 7 for Level 5).
-  /// Stage 5 will decrement this when a word hits the ground.
+  /// Decremented in _onWordHitGround() each time a word reaches the ground.
   late int _lives;
 
+  /// True once all lives are depleted.
+  /// Prevents new spawns and input matching. Stage 6 will use this to show
+  /// the Game Over overlay; for now it just freezes the game.
+  bool _isGameOver = false;
+
+  /// True once the player reaches 100 points (20 correct words).
+  /// Prevents new spawns and input matching after the level is won.
+  /// Stage 6 will replace the placeholder snackbar with a real Level Complete
+  /// overlay that shows the time, best time, and navigation buttons.
+  bool _isLevelComplete = false;
+
   /// Points scored this level (0–100). Each correct word = +5 points.
-  /// Stage 5 will increment this on correct guesses.
-  // ignore: prefer_final_fields
+  /// Incremented by 5 in _onInputChanged() on each correct guess.
   int _score = 0;
 
   /// How many words the player has correctly guessed this level (0–20).
@@ -169,8 +190,9 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   ///   _wordsCompleted 12–15             → 9-letter words
   ///   _wordsCompleted 16–19             → 10-letter words
   ///
-  /// Incremented in Stage 4 when the player correctly guesses a word.
-  // ignore: unused_field
+  /// Incremented in _onInputChanged() each time the player correctly guesses
+  /// a word. Also passed to GameManager.recordCorrectWord() so that
+  /// getNextWord() returns the right word length for the next spawn.
   int _wordsCompleted = 0;
 
   /// Elapsed time displayed in the header (e.g. "1:42").
@@ -185,12 +207,39 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   /// Up to 10 simultaneous words (Section 5.2 cap).
   final List<FallingWord> _fallingWords = [];
 
+  /// Per-word match flash controllers, keyed by FallingWord.id.
+  ///
+  /// When a word is correctly guessed, its fall is paused and an entry is
+  /// added here. The controller drives the "correct" card animation:
+  ///   0.0–0.5 → scale 1.0 → 1.05, green tint fades IN  (250ms)
+  ///   0.5–1.0 → opacity 1.0 → 0.0, word fades OUT       (250ms)
+  /// Total: 500ms (per Section 5.5 / Section 6.5).
+  ///
+  /// On completion the word is removed and the controller is disposed.
+  final Map<String, AnimationController> _matchControllers = {};
+
+  /// Per-word ground-hit controllers, keyed by FallingWord.id.
+  ///
+  /// When a word reaches the ground line without being guessed, an entry is
+  /// added here. Drives the 600ms red exit animation (Section 5.5 / 6.5):
+  ///   0.0–0.5 → scale 1.0 → 1.05, red tint fades IN   (300ms)
+  ///   0.5–1.0 → opacity 1.0 → 0.0, word fades OUT      (300ms)
+  ///
+  /// On completion the word is removed and the controller is disposed.
+  final Map<String, AnimationController> _groundHitControllers = {};
+
   /// The measured width of the game area in pixels.
   ///
   /// Set by LayoutBuilder during build — not via setState (no rebuild needed).
   /// Used in _spawnWord() for pixel-accurate horizontal overlap checks.
   /// 0.0 until the first build completes (overlap check is skipped if 0).
   double _gameAreaWidth = 0.0;
+
+  /// The measured height of the game area in pixels.
+  ///
+  /// Set by LayoutBuilder alongside _gameAreaWidth. Used to compute
+  /// _maxFallY, which is needed for the Stage 5 y-axis overlap check.
+  double _gameAreaHeight = 0.0;
 
   // ==========================================================================
   // TIMER
@@ -209,6 +258,17 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   /// Level 1: every 5000ms. Level 5: every 3000ms (per Section 5.2).
   /// Stored so it can be cancelled in dispose() and on pause (Stage 7).
   Timer? _spawnTimer;
+
+  // (Flash animations are per-word — see _matchControllers and
+  //  _groundHitControllers above and _buildFallingWordWidget below.)
+
+  /// Drives the brief gold highlight on the score text when a word is matched.
+  ///
+  /// Cycle: 0.0 → 1.0 (150ms, gold in) then 1.0 → 0.0 (150ms, gold out).
+  /// Total visible duration: 300ms (per Section 6.5 "brief gold highlight").
+  ///
+  /// The score text Color lerps from white to Color(0xFFFFD700) and back.
+  late AnimationController _scoreHighlightController;
 
   // ==========================================================================
   // INPUT CONTROLLERS
@@ -233,6 +293,12 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     _lives = widget.level.lives;
     _textController = TextEditingController();
     _inputFocusNode = FocusNode();
+
+    // 150ms per direction × 2 = 300ms total gold-flash cycle (Section 6.5).
+    _scoreHighlightController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 150),
+    );
 
     // Spawn the first word after the first frame has been fully rendered.
     //
@@ -274,6 +340,20 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     // AnimationControllers after the State has been torn down.
     _spawnTimer?.cancel();
 
+    // Dispose any match-flash controllers that are mid-animation.
+    // If the player backs out during a 500ms word flash, we must clean up.
+    for (final ctrl in _matchControllers.values) {
+      ctrl.dispose();
+    }
+    _matchControllers.clear();
+
+    // Dispose any ground-hit controllers that are mid-animation.
+    for (final ctrl in _groundHitControllers.values) {
+      ctrl.dispose();
+    }
+    _groundHitControllers.clear();
+
+    _scoreHighlightController.dispose();
     _textController.dispose();
     _inputFocusNode.dispose();
 
@@ -284,11 +364,28 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   // WORD SPAWNING
   // ==========================================================================
 
+  /// The maximum y pixel value a falling word can reach (ground line position).
+  ///
+  /// Mirrors the maxY calculation in _buildFallingWordWidget so that
+  /// _spawnWord() can do an accurate y-axis overlap check without needing
+  /// LayoutBuilder's constraints at spawn time.
+  ///
+  /// Returns 0 if _gameAreaHeight hasn't been set yet (before first build).
+  double get _maxFallY {
+    const double approxCardHeight = 70.0;
+    const double groundLineOffset = 42.0;
+    return (_gameAreaHeight - groundLineOffset - approxCardHeight)
+        .clamp(0.0, double.infinity);
+  }
+
   /// Spawns a single falling word.
   ///
   /// Stage 2: called once at startup.
   /// Stage 3+: called repeatedly by a Timer.periodic at spawnDelay intervals.
   void _spawnWord() {
+    // Don't spawn new words after game over or level complete.
+    if (_isGameOver || _isLevelComplete) return;
+
     // Ask GameManager for the next word.
     // It picks the correct word length based on how many words the player
     // has already completed in this level (words 1–4 = 6 letters, etc.)
@@ -303,57 +400,113 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       duration: widget.level.fallTimeDuration,
     );
 
-    // Horizontal position — with overlap prevention.
+    // OVERLAP PREVENTION — CALCULATED VALID RANGE APPROACH
     //
-    // WHY overlap prevention?
-    // Without it, multiple words can land directly on top of each other,
-    // making some cards impossible to read. We try up to 10 random positions
-    // and keep the one that's far enough from all existing words.
+    // PREVIOUS APPROACH (Stage 3 → Stage 5 2D check with 10 random retries):
+    //   Even with the x+y check, random retries cannot GUARANTEE finding a
+    //   valid position when one clearly exists. On crowded screens, retries
+    //   often fail needlessly and spawn cycles are wasted.
     //
-    // HOW it works:
-    //   1. Pick a random xFraction (0.10–0.75 range keeps cards off the edges).
-    //   2. Convert xFraction → actual pixel x using _gameAreaWidth.
-    //   3. Check against every currently-falling word's pixel x.
-    //   4. If any existing word is closer than minSeparation, try again.
-    //   5. After 10 failed attempts, use whatever we have (better than blocking).
+    // NEW APPROACH — calculate which x ranges are guaranteed overlap-free:
+    //   1. Start with the full valid pixel range: [0, usableWidth]
+    //   2. For each existing word that is near the TOP (y < minYClearance):
+    //      subtract its blocked zone [existingX - minXSep, existingX + minXSep]
+    //      from the current list of valid ranges (range-subtraction algorithm)
+    //   3. If any valid ranges remain, pick a uniformly random pixel within
+    //      them and convert back to an xFraction
+    //   4. If no valid ranges remain, skip this spawn cycle (screen is full)
     //
-    // minSeparation = approxCardWidth (190px) + 20px buffer = 210px.
-    // This ensures cards don't visually overlap.
+    // WHY this is better than the retry approach:
+    //   - O(n) — one pass over existing words, not up to 10 passes each
+    //   - Deterministic — if a valid position exists we ALWAYS find it
+    //   - Uniform distribution — every valid pixel is equally likely
     //
-    // NOTE: _gameAreaWidth is 0.0 until the first LayoutBuilder build.
-    // If it's 0, we skip the check and just use the random fraction as-is
-    // (this only affects the very first word which spawns before the first
-    // LayoutBuilder measurement; subsequent words are all overlap-checked).
+    // RANGE SUBTRACTION:
+    //   For a range (a, b) blocked by zone (lo, hi):
+    //     No overlap (blockHi <= a OR blockLo >= b): keep (a, b) intact
+    //     Left fragment:  (a, blockLo) — kept only if blockLo > a
+    //     Right fragment: (blockHi, b) — kept only if blockHi < b
     const double approxCardWidth = 190.0;
+    const double approxCardHeight = 70.0;
     const double overlapBuffer = 20.0;
-    const double minSeparation = approxCardWidth + overlapBuffer; // 210px
+    const double minXSeparation = approxCardWidth + overlapBuffer;  // 210px
+    const double minYClearance  = approxCardHeight + overlapBuffer; // 90px
 
-    double xFraction = 0.10 + Random().nextDouble() * 0.65;
+    // xFraction is computed below; default 0.5 is overwritten in both branches.
+    double xFraction = 0.5;
 
     if (_gameAreaWidth > 0) {
-      // usableWidth = the range that xFraction maps over in pixels.
-      // It's the game area width minus one card width (so the rightmost card
-      // doesn't fall off the right edge).
       final double usableWidth =
           (_gameAreaWidth - approxCardWidth).clamp(1.0, double.infinity);
+      final double maxFallY = _maxFallY;
 
-      for (int attempt = 0; attempt < 10; attempt++) {
-        final double candidateX = xFraction * usableWidth;
+      // Step 1: start with the entire horizontal range as valid.
+      List<(double, double)> validRanges = [(0.0, usableWidth)];
 
-        // Check whether this candidate overlaps any existing word.
-        final bool tooClose = _fallingWords.any((existing) {
-          final double existingX = existing.xFraction * usableWidth;
-          return (existingX - candidateX).abs() < minSeparation;
-        });
+      // Step 2: for each word that is still near the top, subtract the zone
+      // around it from the valid ranges.
+      for (final existing in _fallingWords) {
+        final double existingY = (maxFallY > 0)
+            ? existing.controller.value * maxFallY
+            : 0.0;
 
-        if (!tooClose) break; // Good position found — stop trying
+        // Words that have already fallen past minYClearance from the top can
+        // safely share an x column with the new word — their y gap means they
+        // will never visually collide (all words fall at the same speed).
+        if (existingY >= minYClearance) continue;
 
-        // Too close — pick a new random fraction and try again.
-        xFraction = 0.10 + Random().nextDouble() * 0.65;
+        final double existingX = existing.xFraction * usableWidth;
+        final double blockLo = existingX - minXSeparation;
+        final double blockHi = existingX + minXSeparation;
+
+        // Subtract (blockLo, blockHi) from every current valid range segment.
+        final List<(double, double)> newRanges = [];
+        for (final (double a, double b) in validRanges) {
+          if (blockHi <= a || blockLo >= b) {
+            // Blocked zone does not intersect this range — keep it intact.
+            newRanges.add((a, b));
+            continue;
+          }
+          // Left fragment: the portion of (a, b) that sits left of the block.
+          if (blockLo > a) newRanges.add((a, blockLo));
+          // Right fragment: the portion of (a, b) that sits right of the block.
+          if (blockHi < b) newRanges.add((blockHi, b));
+        }
+        validRanges = newRanges;
+
+        // Early exit: no valid position remains anywhere on screen.
+        if (validRanges.isEmpty) break;
       }
-      // If all 10 attempts overlapped, we just use the last xFraction.
-      // This is better than an infinite loop; rare in practice since spacing
-      // is impossible only when the screen is packed to the 10-word cap.
+
+      // Step 4: all horizontal space is blocked — skip this spawn cycle.
+      // The spawn timer will try again at the next interval.
+      if (validRanges.isEmpty) return;
+
+      // Step 3: pick a uniformly random pixel across all remaining valid segments.
+      // Compute the total valid length, choose a random offset within it, then
+      // walk the segments to find which one the offset falls inside.
+      final double totalValid = validRanges.fold(
+        0.0,
+        (double sum, (double, double) r) => sum + (r.$2 - r.$1),
+      );
+
+      double offset = Random().nextDouble() * totalValid;
+      double candidateX = 0.0;
+      for (final (double a, double b) in validRanges) {
+        final double segLen = b - a;
+        if (offset <= segLen) {
+          candidateX = a + offset;
+          break;
+        }
+        offset -= segLen;
+      }
+
+      xFraction = candidateX / usableWidth;
+
+    } else {
+      // _gameAreaWidth not yet measured (before first LayoutBuilder build).
+      // Accept any position — only happens for the very first spawn.
+      xFraction = 0.10 + Random().nextDouble() * 0.65;
     }
 
     final word = FallingWord(
@@ -391,22 +544,167 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
   /// Called when a word's fall animation completes (it reached the ground).
   ///
-  /// Stage 2: just removes the word from the screen.
-  /// Stage 5: will also deduct a life and check for game over.
+  /// Deducts a life, triggers the 600ms red exit animation, then checks
+  /// for game over. The word is NOT removed immediately — it stays on screen
+  /// for the duration of the red pulse so the player can see what hit.
   void _onWordHitGround(FallingWord word) {
-    _removeWord(word);
-    // TODO Stage 5: Deduct 1 life (_lives--) and trigger the red pulse animation.
-    // TODO Stage 5: If _lives == 0, show the Game Over overlay.
+    // Don't count ground hits after game over or level complete.
+    // (Multiple words may finish their fall simultaneously — only process
+    // ones where the game is still actively running.)
+    if (_isGameOver || _isLevelComplete) {
+      _removeWord(word);
+      return;
+    }
+
+    // Deduct one life and update the hearts display.
+    setState(() {
+      if (_lives > 0) _lives--;
+    });
+
+    // Trigger the 600ms red exit animation, then remove the word.
+    // The controller is registered in _groundHitControllers so
+    // _buildFallingWordWidget can apply the red tint + scale + fade.
+    final groundCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 600),
+    );
+    _groundHitControllers[word.id] = groundCtrl;
+
+    groundCtrl.addStatusListener((status) {
+      if (status == AnimationStatus.completed) {
+        if (mounted) {
+          groundCtrl.dispose();
+          _groundHitControllers.remove(word.id);
+          _removeWord(word);
+        }
+      }
+    });
+
+    // setState to register the controller before starting, so
+    // _buildFallingWordWidget picks it up on the next frame.
+    setState(() {});
+    groundCtrl.forward();
+
+    // Check for game over AFTER deducting the life.
+    if (_lives <= 0) {
+      _handleGameOver();
+    }
+  }
+
+  /// Called when all lives reach zero.
+  ///
+  /// Stops all running timers and freezes all falling animations.
+  /// Stage 6 will replace the snackbar with a proper Game Over overlay.
+  void _handleGameOver() {
+    // Don't trigger game over if the level was already completed.
+    // Edge case: a word could finish falling at the exact frame that the
+    // 20th word is matched. Level Complete takes priority over Game Over.
+    if (_isLevelComplete) return;
+
+    _isGameOver = true;
+
+    // Stop the spawn timer — no more new words.
+    _spawnTimer?.cancel();
+    _spawnTimer = null;
+
+    // Stop the clock.
+    _timerUpdateTimer?.cancel();
+    _stopwatch.stop();
+
+    // Freeze all currently falling words in place.
+    for (final word in _fallingWords) {
+      if (!_groundHitControllers.containsKey(word.id) &&
+          !_matchControllers.containsKey(word.id)) {
+        word.controller.stop();
+      }
+    }
+
+    // TODO Stage 6: Show the Game Over overlay widget.
+    // For now, show a placeholder so the player knows the game ended.
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Game Over! (overlay coming in Stage 6)'),
+          duration: Duration(seconds: 3),
+          backgroundColor: Color(0xFFE53935),
+        ),
+      );
+    }
+  }
+
+  /// Called when the player correctly guesses all 20 words (score reaches 100).
+  ///
+  /// Stops the spawn timer and clock, freezes any still-falling words, then
+  /// saves the player's best time and unlocks the next level via ProgressManager.
+  ///
+  /// Stage 6 will replace the placeholder snackbar here with a proper Level
+  /// Complete overlay showing time, best time badge, and navigation buttons.
+  ///
+  /// WHY freeze words instead of letting them fall?
+  /// Once the level is won there is no gameplay reason to watch remaining words
+  /// hit the ground. Freezing them keeps the screen clean and signals clearly
+  /// that the level has ended.
+  void _handleLevelComplete() {
+    _isLevelComplete = true;
+
+    // Stop the spawn timer — no new words should appear after winning.
+    _spawnTimer?.cancel();
+    _spawnTimer = null;
+
+    // Stop the clock — elapsed time is now the player's final completion time.
+    _timerUpdateTimer?.cancel();
+    _stopwatch.stop();
+
+    // Freeze all still-falling words in place.
+    // Words already mid-animation (matched green / ground hit red) keep playing.
+    for (final word in _fallingWords) {
+      if (!_groundHitControllers.containsKey(word.id) &&
+          !_matchControllers.containsKey(word.id)) {
+        word.controller.stop();
+      }
+    }
+
+    // Save best time and unlock the next level.
+    //
+    // Both calls are fire-and-forget async — we don't need to await them
+    // before showing the overlay. ProgressManager.saveBestTime() only writes
+    // if this run was faster than the player's existing best. unlockLevel()
+    // is a no-op if the next level is already unlocked or this is Level 5.
+    //
+    // unawaited() (from dart:async) is explicit that the discard is intentional,
+    // suppressing the discarded_futures lint warning.
+    final int elapsedMs = _stopwatch.elapsed.inMilliseconds;
+    unawaited(
+      ProgressManager().saveBestTime(
+        levelNumber: widget.level.levelNumber,
+        timeMs: elapsedMs,
+      ),
+    );
+    if (widget.level.levelNumber < 5) {
+      unawaited(ProgressManager().unlockLevel(widget.level.levelNumber + 1));
+    }
+
+    // TODO Stage 6: Show the Level Complete overlay widget.
+    // For now, show a placeholder so the player knows they won.
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Level Complete! (overlay coming in Stage 6)'),
+          duration: Duration(seconds: 3),
+          backgroundColor: Color(0xFF4CAF50),
+        ),
+      );
+    }
   }
 
   /// Removes a word from the screen and disposes its AnimationController.
   ///
   /// Called from:
-  ///   - _onWordHitGround (word reached the GROUND without being guessed)
-  ///   - Stage 4: when the player types the correct answer
+  ///   - _onWordHitGround animation completion (red exit done)
+  ///   - _matchControllers animation completion (green exit done)
   void _removeWord(FallingWord word) {
-    // Dispose the controller before removing from the list.
-    // (Disposing after removal is also fine, but this order is cleaner.)
+    // Dispose the fall controller. (Match/ground controllers are disposed
+    // by their own status listener before _removeWord is called.)
     word.controller.dispose();
     setState(() => _fallingWords.remove(word));
   }
@@ -493,15 +791,139 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   }
 
   /// Called on every keystroke in the answer field.
-  /// Stage 4 will check the typed text against all falling words.
+  ///
+  /// Compares the current typed text against every falling word's answer.
+  /// On a match the word freezes, plays a 500ms green flash + scale-up +
+  /// fade-out animation (per Section 6.5), then is removed. Score is
+  /// updated immediately and the input field is cleared right away so the
+  /// player can start typing the next word without waiting for the animation.
+  ///
+  /// Per Section 6.3: "Real-time checking: On onChanged, check input
+  /// length >=4 and match against falling words (clear field on match)."
+  ///
+  /// WHY iterate a COPY of _fallingWords?
+  /// setState() called inside can trigger rebuilds. List.from() gives us a
+  /// stable snapshot to iterate without ConcurrentModificationError.
+  ///
+  /// WHY skip words already in _matchControllers?
+  /// A word in _matchControllers is mid-animation — already matched. We
+  /// must not match it again (which would double-score or double-remove).
   void _onInputChanged(String value) {
-    // TODO Stage 4: Compare [value] against every word in _fallingWords.
-    // On match: call _removeWord(word), show green flash, +5 score, clear field.
+    // No matching after game over or level complete.
+    if (_isGameOver || _isLevelComplete) return;
+
+    // Normalise: uppercase and strip stray whitespace.
+    // TextCapitalization.characters already forces uppercase, but we
+    // normalise defensively to make comparisons reliable.
+    final String typed = value.toUpperCase().trim();
+
+    // Section 6.3: skip checks for very short input (no word is < 4 letters).
+    if (typed.length < 4) return;
+
+    // Snapshot the list before iterating (avoids ConcurrentModificationError
+    // if setState is called while we're still in the loop).
+    for (final FallingWord word in List<FallingWord>.from(_fallingWords)) {
+      // Skip words already mid-match-animation.
+      if (_matchControllers.containsKey(word.id)) continue;
+
+      if (typed == word.answer) {
+        // ── CORRECT GUESS ──────────────────────────────────────────────────
+
+        // Freeze the fall so the word stops moving during its exit animation.
+        word.controller.stop();
+
+        // Update score and completed-word counter immediately (don't wait
+        // for the animation to finish — the player should see points now).
+        //
+        // WHY clamp to 100?
+        // Guards against an edge case where two match events arrive in the same
+        // frame near the end of the level, which would otherwise push the score
+        // to 105/100. Clamping ensures the display always shows "100 / 100".
+        setState(() {
+          _score = (_score + 5).clamp(0, 100);
+          _wordsCompleted++; // Drives word-length progression via GameManager
+        });
+
+        // Tell GameManager to advance its internal word-length counter so
+        // the next getNextWord() call returns the right length word.
+        GameManager().recordCorrectWord();
+
+        // Detect level completion: 20 correct words = 100 pts = level done.
+        // _handleLevelComplete() stops timers, freezes remaining words, saves
+        // the best time, and unlocks the next level. The green exit animation
+        // on this (potentially last) word still plays through to completion.
+        if (_wordsCompleted >= 20) {
+          _handleLevelComplete();
+          // No need to break — the break below still fires, and _isLevelComplete
+          // will guard against any further matches in the same onChanged call.
+        }
+
+        // Trigger the gold score highlight in the header (Section 6.5:
+        // "brief gold highlight on score text, 300ms opacity tween").
+        // Reset first in case a previous highlight is still fading out.
+        _scoreHighlightController.reset();
+        _scoreHighlightController.forward().then((_) {
+          if (mounted) _scoreHighlightController.reverse();
+        });
+
+        // Clear the input field immediately so the player can start typing
+        // the next word while the animation is still playing.
+        // clear() triggers onChanged("") which returns early at length < 4.
+        _textController.clear();
+        _inputFocusNode.requestFocus();
+
+        // ── PER-WORD FLASH ANIMATION (Section 5.5 / 6.5) ──────────────────
+        // 500ms total:
+        //   0.0–0.5 (250ms): scale 1.0→1.05, green tint fades IN
+        //   0.5–1.0 (250ms): opacity 1.0→0.0, card fades OUT
+        //
+        // We create one AnimationController per matched word (not a shared
+        // controller) so multiple words can animate simultaneously if the
+        // player is fast enough to match two words in quick succession.
+        final matchCtrl = AnimationController(
+          vsync: this,
+          duration: const Duration(milliseconds: 500),
+        );
+        _matchControllers[word.id] = matchCtrl;
+
+        // When the 500ms animation completes, clean up and remove the card.
+        matchCtrl.addStatusListener((status) {
+          if (status == AnimationStatus.completed) {
+            if (mounted) {
+              matchCtrl.dispose();
+              _matchControllers.remove(word.id);
+              _removeWord(word);
+            }
+          }
+        });
+
+        // Trigger the animation — _buildFallingWordWidget watches
+        // _matchControllers to apply the scale + tint + fade.
+        setState(() {}); // Force rebuild so _buildFallingWordWidget detects the new match
+        matchCtrl.forward();
+
+        // Only one word can match per keystroke — stop checking.
+        break;
+      }
+    }
   }
 
   /// Called when the player presses Enter/Go on the keyboard.
+  ///
+  /// Per Section 6.3: "Enter key: Trigger check via onSubmitted."
+  /// Runs the same match logic as _onInputChanged. This covers the case
+  /// where the player types quickly and taps Enter before onChanged fires,
+  /// or simply prefers to confirm with Enter rather than rely on live-match.
+  ///
+  /// After the check (match or no match), always clears and refocuses —
+  /// Enter is treated as "submit this attempt, start the next one".
   void _onInputSubmitted(String value) {
-    // TODO Stage 4: Same match-check logic as _onInputChanged.
+    // Delegate to the same matching logic used by onChanged.
+    _onInputChanged(value);
+
+    // Always clear + refocus after Enter, even if no match was found.
+    // (If a match WAS found, _onInputChanged already cleared the field,
+    // so calling clear() again is harmless.)
     _textController.clear();
     _inputFocusNode.requestFocus();
   }
@@ -585,12 +1007,13 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
           Row(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              // SCORE (left)
+              // SCORE (left) — wrapped in AnimatedBuilder for the gold highlight
               Expanded(
                 child: _buildStatBlock(
                   label: 'SCORE',
                   value: '$_score / 100',
                   alignment: CrossAxisAlignment.start,
+                  highlightController: _scoreHighlightController,
                 ),
               ),
 
@@ -616,11 +1039,27 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   }
 
   /// A labelled two-line stat block (small label above a larger value).
+  ///
+  /// [highlightController] — optional. When provided the value text briefly
+  /// turns gold (Color(0xFFFFD700)) as the controller animates 0→1→0.
+  /// Used on the score block to give a 300ms gold flash on correct guesses
+  /// (Section 6.5: "Brief gold highlight on score text, 300ms opacity tween").
   Widget _buildStatBlock({
     required String label,
     required String value,
     required CrossAxisAlignment alignment,
+    AnimationController? highlightController,
   }) {
+    // Value text color: white normally, lerps to gold while highlight plays.
+    Widget valueText(Color color) => Text(
+          value,
+          style: TextStyle(
+            fontSize: 17,
+            fontWeight: FontWeight.bold,
+            color: color,
+          ),
+        );
+
     return Column(
       crossAxisAlignment: alignment,
       mainAxisSize: MainAxisSize.min,
@@ -635,14 +1074,23 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
           ),
         ),
         const SizedBox(height: 2),
-        Text(
-          value,
-          style: const TextStyle(
-            fontSize: 17,
-            fontWeight: FontWeight.bold,
-            color: Colors.white,
-          ),
-        ),
+        // Wrap in AnimatedBuilder only when a highlight controller is provided.
+        // The TIME stat uses this widget too and has no highlight animation.
+        if (highlightController != null)
+          AnimatedBuilder(
+            animation: highlightController,
+            builder: (context, _) {
+              // Lerp: white (at controller.value=0) → gold (at 1.0).
+              final Color color = Color.lerp(
+                Colors.white,
+                const Color(0xFFFFD700), // gold
+                highlightController.value,
+              )!;
+              return valueText(color);
+            },
+          )
+        else
+          valueText(Colors.white),
       ],
     );
   }
@@ -701,17 +1149,11 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
         // widget's size — which is what we actually need for positioning words.
         child: LayoutBuilder(
           builder: (context, constraints) {
-            // Store the game area width so _spawnWord() can use it for
-            // pixel-accurate overlap checks.
-            //
-            // WHY direct assignment instead of setState?
-            // We only need _gameAreaWidth for arithmetic in _spawnWord() —
-            // updating it does NOT require a widget rebuild. Using setState here
-            // would cause an extra unnecessary rebuild on every frame that the
-            // LayoutBuilder re-runs. Direct field assignment is safe because
-            // _spawnWord() always reads _gameAreaWidth at call time, so it
-            // always gets the latest value without needing a rebuild cycle.
+            // Capture game area dimensions for _spawnWord() overlap checks.
+            // Direct assignment (not setState) — no rebuild needed, just
+            // arithmetic values read next time _spawnWord() is called.
             _gameAreaWidth = constraints.maxWidth;
+            _gameAreaHeight = constraints.maxHeight;
 
             return Stack(
               // clipBehavior: Clip.hardEdge keeps word cards inside the game area
@@ -769,6 +1211,9 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                 ..._fallingWords.map(
                   (word) => _buildFallingWordWidget(word, constraints),
                 ),
+
+                // (Correct-guess flash is per-word — see _buildFallingWordWidget
+                //  which applies scale + green tint + fade-out to matched cards.)
               ],
             );
           },
@@ -821,62 +1266,161 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   // FALLING WORD WIDGET
   // ==========================================================================
 
-  /// Builds an AnimatedBuilder that smoothly moves a word card from the top
-  /// of the game area down to the ground line.
+  /// Builds an animated word card, handling two states:
   ///
-  /// [word]        — the data and controller for this specific word instance
+  /// FALLING (normal): the card moves from top to ground line driven by
+  ///   [word.controller] (Curves.linear, constant velocity).
+  ///
+  /// MATCHED (exit animation): triggered when the player correctly types
+  ///   the word. The fall is frozen at its current y position, and a 500ms
+  ///   exit animation plays (per Section 5.5 / Section 6.5):
+  ///     0–250ms: scale 1.0 → 1.05, green tint fades in
+  ///     250–500ms: opacity 1.0 → 0.0 (card fades out)
+  ///   After completion, _removeWord() is called to clean up.
+  ///
+  /// [word]        — data + fall controller for this word instance
   /// [constraints] — pixel dimensions of the game area (from LayoutBuilder)
-  ///
-  /// WHY AnimatedBuilder?
-  /// AnimatedBuilder is Flutter's dedicated tool for animation-driven rebuilds.
-  /// It rebuilds ONLY the Positioned wrapper on every animation tick — not the
-  /// entire screen. The card itself is passed as [child] and is built once,
-  /// then reused each frame (since its content never changes during the fall).
-  ///
-  /// WHY pass the card as [child] and not build it inside [builder]?
-  /// Flutter rebuilds everything inside [builder] on every animation frame
-  /// (up to 60 times per second). The card's text, style, and decorations
-  /// don't change, so building it inside [builder] would be wasteful.
-  /// Passing it as [child] means it's built once and reused — more efficient.
   Widget _buildFallingWordWidget(FallingWord word, BoxConstraints constraints) {
-    // Estimated card dimensions. We use fixed estimates here rather than
-    // measuring the actual card because:
-    //   a) We don't know the card size before it's built
-    //   b) The estimates are close enough for positioning
-    //   c) Stage 3+ can refine this with GlobalKey measurements if needed
     const double approxCardWidth = 190.0;
     const double approxCardHeight = 70.0;
-
-    // The ground line sits 42px from the bottom of the game area.
-    // A word "hits the ground" when its bottom edge reaches this line.
-    // So the maximum top position for the card is:
-    //   areaHeight - groundLineOffset - cardHeight
     const double groundLineOffset = 42.0;
-    final double maxY = (constraints.maxHeight - groundLineOffset - approxCardHeight)
-        .clamp(0.0, double.infinity); // clamp prevents negative values on tiny screens
 
-    // X position: xFraction scales across the usable width (area minus card width).
-    // clamp(0.0, ...) prevents the card from going off the left edge.
+    final double maxY = (constraints.maxHeight - groundLineOffset - approxCardHeight)
+        .clamp(0.0, double.infinity);
+
     final double xPos = (word.xFraction * (constraints.maxWidth - approxCardWidth))
         .clamp(0.0, constraints.maxWidth - approxCardWidth);
 
+    // ── MATCHED EXIT ANIMATION ──────────────────────────────────────────────
+    final AnimationController? matchCtrl = _matchControllers[word.id];
+    if (matchCtrl != null) {
+      // The fall controller was stopped on match — use its frozen value for y.
+      final double frozenY = word.controller.value * maxY;
+
+      // The card widget is built once and reused across all animation frames.
+      // We use a Stack inside the AnimatedBuilder to overlay the green tint
+      // on top of the card content without rebuilding the card itself.
+      final Widget card = _buildWordCard(word);
+
+      return AnimatedBuilder(
+        animation: matchCtrl,
+        child: card,
+        builder: (context, child) {
+          final double t = matchCtrl.value; // 0.0 → 1.0 over 500ms
+
+          // Scale: 1.0 at t=0, eases up to 1.05 by t=0.5, holds at 1.05.
+          // Curves.easeOut applied to the first half (0..0.5 mapped to 0..1).
+          final double scaleFraction = Curves.easeOut.transform(
+            (t * 2.0).clamp(0.0, 1.0),
+          );
+          final double scale = 1.0 + 0.05 * scaleFraction;
+
+          // Opacity: full (1.0) during first half, fades to 0 in second half.
+          final double opacity =
+              t < 0.5 ? 1.0 : 1.0 - ((t - 0.5) * 2.0).clamp(0.0, 1.0);
+
+          // Green tint overlay alpha: ramps up to 50% opacity in first half,
+          // then fades with the card (automatically, via the Opacity wrapper).
+          final double greenAlpha = (t * 2.0).clamp(0.0, 1.0) * 0.50;
+
+          return Positioned(
+            left: xPos,
+            top: frozenY,
+            child: Opacity(
+              opacity: opacity,
+              child: Transform.scale(
+                scale: scale,
+                child: Stack(
+                  children: [
+                    child!, // The word card (built once above)
+                    // Green tint layered over the card face
+                    Positioned.fill(
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF4CAF50).withValues(
+                            alpha: greenAlpha,
+                          ),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      );
+    }
+
+    // ── GROUND HIT EXIT ANIMATION (Section 5.5 / 6.5) ──────────────────────
+    // Mirrors the match animation but RED and 600ms duration:
+    //   0.0–0.5 (300ms): scale 1.0 → 1.05, red tint fades IN  (impact pulse)
+    //   0.5–1.0 (300ms): opacity 1.0 → 0.0, card fades OUT
+    final AnimationController? groundCtrl = _groundHitControllers[word.id];
+    if (groundCtrl != null) {
+      // Word has reached the ground — use maxY as its frozen y position.
+      // (Fall animation completed at value=1.0, so it's at the ground line.)
+      final Widget card = _buildWordCard(word);
+
+      return AnimatedBuilder(
+        animation: groundCtrl,
+        child: card,
+        builder: (context, child) {
+          final double t = groundCtrl.value; // 0.0 → 1.0 over 600ms
+
+          // Scale: eases up to 1.05 in the first half, holds thereafter.
+          final double scaleFraction = Curves.easeOut.transform(
+            (t * 2.0).clamp(0.0, 1.0),
+          );
+          final double scale = 1.0 + 0.05 * scaleFraction;
+
+          // Opacity: full in first half, fades to 0 in second half.
+          final double opacity =
+              t < 0.5 ? 1.0 : 1.0 - ((t - 0.5) * 2.0).clamp(0.0, 1.0);
+
+          // Red tint ramps up to 60% opacity in first half.
+          final double redAlpha = (t * 2.0).clamp(0.0, 1.0) * 0.60;
+
+          return Positioned(
+            left: xPos,
+            top: maxY, // frozen at ground line
+            child: Opacity(
+              opacity: opacity,
+              child: Transform.scale(
+                scale: scale,
+                child: Stack(
+                  children: [
+                    child!,
+                    Positioned.fill(
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: Colors.red.withValues(alpha: redAlpha),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      );
+    }
+
+    // ── NORMAL FALLING WORD ─────────────────────────────────────────────────
+    // The card is built ONCE and passed as [child] to avoid rebuilding it on
+    // every animation frame. Only the Positioned top value changes per tick.
     return AnimatedBuilder(
       animation: word.controller,
-
-      // The card is built ONCE here and passed as [child].
-      // [builder] receives it as its second parameter and wraps it in a
-      // Positioned widget whose [top] changes every animation tick.
       child: _buildWordCard(word),
-
       builder: (context, child) {
-        // controller.value: 0.0 = just spawned (top of area)
-        //                   1.0 = hit the ground line (maxY position)
         final double yPos = word.controller.value * maxY;
-
         return Positioned(
           left: xPos,
           top: yPos,
-          child: child!, // child! = the pre-built card from above
+          child: child!,
         );
       },
     );
