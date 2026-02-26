@@ -126,15 +126,31 @@ class _LevelSelectionScreenState extends State<LevelSelectionScreen>
   }
 
   /// Loads saved progress and triggers the entrance animation when done.
+  ///
+  /// WHY guard on isLoaded?
+  /// ProgressManager.loadProgress() reads from SharedPreferences and overwrites
+  /// the singleton's in-memory values. unlockLevel() and saveBestTime() update
+  /// those values synchronously, but their async SharedPreferences writes may
+  /// not have completed yet. If loadProgress() ran again while those writes
+  /// were still in-flight, it would reset _highestUnlockedLevel and _bestTimes
+  /// back to stale data, making newly completed levels appear locked again.
+  ///
+  /// Since main.dart already calls loadProgress() once during the splash screen,
+  /// isLoaded is always true by the time this screen opens. The guard means we
+  /// never re-read from storage — we always rely on the up-to-date in-memory
+  /// values that the game screen keeps current via unlockLevel / saveBestTime.
   Future<void> _loadProgress() async {
-    await ProgressManager().loadProgress();
+    if (!ProgressManager().isLoaded) {
+      // First launch only: storage hasn't been read yet.
+      await ProgressManager().loadProgress();
+    }
 
-    // Only update the UI if this widget is still on screen
+    // Only update the UI if this widget is still on screen.
     if (mounted) {
       setState(() {
         _progressLoaded = true;
       });
-      // Start the fade-in entrance animation
+      // Start the fade-in entrance animation.
       _entranceController.forward();
     }
   }
@@ -152,6 +168,17 @@ class _LevelSelectionScreenState extends State<LevelSelectionScreen>
   // ==========================================================================
 
   /// Called when the player taps an unlocked level card.
+  ///
+  /// Pushes GameScreen and — critically — uses .then() to refresh the level
+  /// list when the player returns (via "Level Select", "Try Again", etc.).
+  ///
+  /// WHY .then()?
+  /// Navigator.push() returns a Future that completes when the pushed route
+  /// is popped. The .then() callback fires at that moment, calling setState()
+  /// so the itemBuilder re-runs and reads the latest ProgressManager values
+  /// (which were updated synchronously by unlockLevel / saveBestTime during
+  /// the game). Without this, the card states can appear stale on return.
+  ///
   /// [level] - The level configuration for the tapped card.
   void _onLevelTapped(LevelConfig level) {
     // Navigate to the Game Screen, passing the selected level's config.
@@ -161,29 +188,37 @@ class _LevelSelectionScreenState extends State<LevelSelectionScreen>
     // Per Section 6.4: "SlideTransition (400ms) for level start"
     // A slide-up feels more "into the action" than a fade, which suits
     // the transition from choosing a level to actually playing it.
-    Navigator.of(context).push(
-      PageRouteBuilder(
-        transitionDuration: const Duration(milliseconds: 400),
+    Navigator.of(context)
+        .push(
+          PageRouteBuilder(
+            transitionDuration: const Duration(milliseconds: 400),
 
-        pageBuilder: (context, animation, secondaryAnimation) =>
-            GameScreen(level: level),
+            pageBuilder: (context, animation, secondaryAnimation) =>
+                GameScreen(level: level),
 
-        // The game screen slides UP from the bottom as it enters.
-        // Offset(0, 1) = starts fully below the screen.
-        // Offset.zero  = ends at its normal on-screen position.
-        transitionsBuilder: (context, animation, secondaryAnimation, child) {
-          final slideAnimation = Tween<Offset>(
-            begin: const Offset(0, 1), // Start: below the screen
-            end: Offset.zero,          // End: normal position
-          ).animate(CurvedAnimation(
-            parent: animation,
-            curve: Curves.easeOutCubic, // Fast start, smooth settle
-          ));
+            // The game screen slides UP from the bottom as it enters.
+            // Offset(0, 1) = starts fully below the screen.
+            // Offset.zero  = ends at its normal on-screen position.
+            transitionsBuilder:
+                (context, animation, secondaryAnimation, child) {
+              final slideAnimation = Tween<Offset>(
+                begin: const Offset(0, 1), // Start: below the screen
+                end: Offset.zero, // End: normal position
+              ).animate(CurvedAnimation(
+                parent: animation,
+                curve: Curves.easeOutCubic, // Fast start, smooth settle
+              ));
 
-          return SlideTransition(position: slideAnimation, child: child);
-        },
-      ),
-    );
+              return SlideTransition(position: slideAnimation, child: child);
+            },
+          ),
+        )
+        .then((_) {
+      // The game route was popped — player is back on this screen.
+      // Rebuild so the level cards reflect any progress made during the session
+      // (newly unlocked levels, new best times, completed states).
+      if (mounted) setState(() {});
+    });
   }
 
   // ==========================================================================
