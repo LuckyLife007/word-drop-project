@@ -1,7 +1,7 @@
 # Word Drop — Development Progress
 
-**Last Updated**: February 26, 2026
-**Current Build**: Game Screen Stages 1–6 (overlays: Game Over + Level Complete)
+**Last Updated**: February 27, 2026
+**Current Build**: Game Screen Stages 1–7 — full gameplay complete (overlays: Game Over + Level Complete + Pause)
 **Repository**: https://github.com/LuckyLife007/word-drop-project
 
 ---
@@ -112,8 +112,8 @@ a lives system that varies by level.
   - **Available** (unlocked but not completed): bright white, pulsing scale animation, play icon, tappable
   - **Completed**: semi-transparent white, green checkmark, shows best time, tappable
 - Back button navigates back to Main Menu
-- Loads progress from `ProgressManager` on open
-- Tapping a level currently shows a "Coming Soon" snackbar (game screen not yet built)
+- Loads progress from `ProgressManager` on open; `isLoaded` guard prevents re-reading SharedPreferences over synchronously-updated in-memory values
+- Tapping a level navigates to `GameScreen` with a slide-up transition; `.then(() => setState({}))` refreshes card states on return so newly unlocked levels are reflected immediately
 
 ### ✅ App Entry Point (`lib/main.dart`)
 - Locks orientation to portrait-only at startup (per documentation Section 1.2)
@@ -159,14 +159,17 @@ App Launch
                             └── [PLAY] FadeTransition (300ms)
                                     └── LevelSelectionScreen
                                             └── [Back] returns to MainMenuScreen
-                                            └── [Level tap] → "Coming Soon" (game screen pending)
+                                            └── [Level tap] SlideUp (400ms) → GameScreen
+                                                    └── [Game Over] Try Again / Level Select / Main Menu
+                                                    └── [Level Complete] Continue / Replay / Level Select
+                                                    └── [Pause] Resume Game / End Game
 ```
 
 ---
 
 ## What Comes Next
 
-### ✅ Game Screen — Stages 1–5 Complete
+### ✅ Game Screen — All 7 Stages Complete
 
 **Stage 1 — Static layout** ✅
 - Header (top): score display, heart icons for lives, level name in gold, timer
@@ -188,8 +191,6 @@ App Launch
 - `_gameAreaWidth`: set by `LayoutBuilder` via direct field assignment (no setState), used for pixel-accurate overlap checks
 - Overlap prevention in `_spawnWord()`: up to 10 retries to find an x position with ≥210px separation from all existing words (190px card + 20px buffer)
 - `_wordsCompleted` counter added: tracks correct guesses 0–20, drives word-length progression in Stage 4
-
-### 🔲 Game Screen — Remaining Stages
 
 **Stage 4 — Input matching** ✅
 - `_onInputChanged()`: live check every keystroke; length guard ≥4 chars (Section 6.3), normalises to uppercase
@@ -229,10 +230,15 @@ App Launch
 - Navigation methods: `_onTryAgain()` / `_onContinue()` use `Navigator.pushReplacement` + fade transition; `_onGoToLevelSelect()` uses `Navigator.pop`; `_onGoToMainMenu()` uses `Navigator.popUntil(isFirst)`
 - `_handleGameOver()` / `_handleLevelComplete()` doc comments updated (no longer reference snackbar placeholders)
 
-**Stage 7 — Pause**
-- Pause button in input area
-- Overlay: level name, score, time, lives, "Resume" / "End Game"
-- All timers and animations pause/resume correctly
+**Stage 7 — Pause** ✅
+- `_isPaused` flag: guards `_spawnWord()`, `_onInputChanged()`, and `_onWordHitGround()` while paused
+- `_pauseOverlayController`: dedicated 500ms `AnimationController` (separate from `_overlayController`) — supports multiple pause-resume cycles without resetting the terminal overlay state
+- `_onPausePressed()`: sets `_isPaused = true`, cancels spawn timer, stops stopwatch + display timer, freezes all falling word controllers (skipping any mid-match or mid-ground-hit animations), unfocuses keyboard, then `setState` + `_pauseOverlayController.forward()`
+- `_onResume()`: `_pauseOverlayController.reset()`, clears `_isPaused`, calls `word.controller.forward()` for all paused words, restarts stopwatch via `_startTimer()`, restarts spawn timer via `_startSpawnTimer(spawnImmediately: false)`, refocuses keyboard, `setState`
+- `_onEndGame()`: `Navigator.pop(context)` — exits to Level Select with no progress saved
+- `_buildPauseOverlay()`: white card on 65% black backdrop; shows "WORD DROP" label, pause icon, "PAUSED" title; stat rows for Level / Score / Time / Lives; buttons "Resume Game" (primary purple), "End Game" (outlined)
+- `_startSpawnTimer({bool spawnImmediately = true})`: new named parameter — `false` on resume so no extra word is injected; `true` (default) preserves original initial-start behaviour
+- `build()` Stack: `if (_isPaused) Positioned.fill(child: _buildPauseOverlay())` added after Game Over and Level Complete overlays
 
 ### 🔲 After the Game Screen
 Once the game screen is complete and tested, remaining screens are:
@@ -268,7 +274,7 @@ word_drop/
 │   └── screens/
 │       ├── main_menu_screen.dart    ✅ main menu UI
 │       ├── level_selection_screen.dart ✅ level list UI
-│       └── game_screen.dart         ✅ Stages 1–6 — layout, fall, spawn, match, lives, overlays
+│       └── game_screen.dart         ✅ Stages 1–7 — layout, fall, spawn, match, lives, overlays, pause
 ├── test/
 │   └── widget_test.dart             ✅ updated for WordDropApp
 └── pubspec.yaml                     ✅ dependencies configured

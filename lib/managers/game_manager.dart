@@ -536,6 +536,41 @@ class GameManager {
   }
 
   // ==========================================================================
+  // MULTI-WORD GAME INTERFACE
+  // ==========================================================================
+
+  /// Records that the player correctly guessed a falling word.
+  ///
+  /// Called from the game screen each time a falling word card is matched
+  /// by the player's typed input. Advances the internal word-length
+  /// progression counter so the NEXT call to [getNextWord()] returns a
+  /// word of the appropriate difficulty.
+  ///
+  /// Word-length progression (resets every level):
+  ///   Correct words 1–4  → next word 6 letters
+  ///   Correct words 5–8  → next word 7 letters
+  ///   Correct words 9–12 → next word 8 letters
+  ///   Correct words 13–16→ next word 9 letters
+  ///   Correct words 17–20→ next word 10 letters
+  ///
+  /// WHY not call checkAnswer()?
+  /// checkAnswer() checks the player's guess against [_currentWord], which
+  /// is the LAST word returned by getNextWord(). In a multi-word game there
+  /// are many words falling simultaneously — [_currentWord] doesn't reliably
+  /// represent the word that was just matched. We do our own matching in
+  /// the game screen and only call this method to advance the counter.
+  ///
+  /// WHY not trigger _advanceToNextLevel() here?
+  /// Level completion is handled by the game screen's Stage 6 overlay logic.
+  /// Calling _advanceToNextLevel() here would reset the word counter and
+  /// confuse the game screen's own completion check.
+  void recordCorrectWord() {
+    if (_wordCounterWithinLevel < 20) {
+      _wordCounterWithinLevel++;
+    }
+  }
+
+  // ==========================================================================
   // STATISTICS AND DEBUGGING
   // ==========================================================================
 

@@ -4,22 +4,21 @@
 // This is the main gameplay screen — where words fall from the sky and the
 // player types answers to catch them before they hit the ground.
 //
-// STAGE 5 (THIS FILE): Lives and scoring — words that hit the ground now cost
-// a life. Lives display updates in real time. When all lives are gone the game
-// stops. Also fixes overlap prevention (x+y 2D check) and adds the gold score
-// highlight animation on correct guess.
+// STAGE 7 (THIS FILE): Pause — the player can freeze the game mid-run, review
+// current progress (level / score / time / lives), then resume or abandon.
+// All word fall animations, spawn timer, and stopwatch freeze on pause and
+// are accurately restored on resume.
 //
 // WHAT IS IN THIS STAGE:
-//   - Everything from Stages 1–4
-//   - OVERLAP FIX: _spawnWord() now checks BOTH x AND y positions so words
-//     can never visually overlap regardless of screen width (Section 5.1)
-//   - _gameAreaHeight: tracked via LayoutBuilder for accurate y-overlap check
-//   - _onWordHitGround(): deducts a life, triggers red pulse animation
-//   - Red pulse (600ms): scale 1.0→1.05, red tint in, then opacity→0 fade out
-//   - _groundHitControllers: per-word red exit animation (mirrors _matchControllers)
-//   - _isGameOver flag: stops spawning + input when all lives are gone
-//   - _handleGameOver(): stops all timers/animations, placeholder for Stage 6 overlay
-//   - _scoreHighlightController: 300ms gold flash on score text after correct guess
+//   - Everything from Stages 1–6
+//   - _isPaused flag: stops new spawns and input matching while paused
+//   - _pauseOverlayController: 500ms ScaleTransition entrance for pause card
+//   - _onPausePressed(): freezes falling words + timers, shows pause overlay
+//   - _onResume(): restores all controllers, restarts spawn + clock timers
+//   - _onEndGame(): exits to Level Selection without saving progress
+//   - _buildPauseOverlay(): pause UI card (level/score/time/lives + buttons)
+//   - _startSpawnTimer({spawnImmediately}): new named param skips initial spawn
+//     on resume so mid-fall words aren't joined by an immediate new spawn
 //
 // PER DOCUMENTATION:
 //
@@ -48,9 +47,9 @@
 //   Stage 2: Single falling word using AnimationController + Curves.linear
 //   Stage 3: Spawn timer + multiple simultaneous words + overlap prevention
 //   Stage 4: Input matching — onChanged checks typed text against words
-//   Stage 5 (THIS): Lives + scoring — ground hit deducts life, overlap fix
-//   Stage 6:  Game Over and Level Complete overlays
-//   Stage 7:  Pause overlay — freezes all animations and timers
+//   Stage 5: Lives + scoring — ground hit deducts life, overlap fix
+//   Stage 6: Game Over and Level Complete overlays
+//   Stage 7 (THIS): Pause overlay — freezes all animations and timers
 //
 // CHANGELOG:
 //   - Stage 1: Initial creation — static layout, three zones
@@ -65,6 +64,10 @@
 //   - Stage 5 (pre-Stage-6 fixes): Calculated-valid-range overlap prevention
 //              replaces 10-retry approach; score capped at 100 max; level
 //              complete detection added (_isLevelComplete + _handleLevelComplete)
+//   - Stage 6: Game Over + Level Complete overlays, ScaleTransition entrance
+//   - Stage 7: Pause overlay — _isPaused + _pauseOverlayController,
+//              _onPausePressed / _onResume / _onEndGame, _buildPauseOverlay,
+//              _startSpawnTimer({spawnImmediately}) named parameter
 // ============================================================================
 
 import 'dart:async';  // For Timer (used by the stopwatch display updater)
@@ -176,6 +179,16 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   /// When true, the Level Complete overlay is shown over the game screen.
   bool _isLevelComplete = false;
 
+  /// True while the game is paused.
+  ///
+  /// Set by _onPausePressed() and cleared by _onResume(). While true:
+  ///   - New word spawns are blocked (_spawnWord guard)
+  ///   - Input matching is blocked (_onInputChanged guard)
+  ///   - All falling word controllers are stopped (frozen in place)
+  ///   - Spawn timer and stopwatch are cancelled/stopped
+  ///   - The Pause overlay card is shown over the game
+  bool _isPaused = false;
+
   /// Points scored this level (0–100). Each correct word = +5 points.
   /// Incremented by 5 in _onInputChanged() on each correct guess.
   int _score = 0;
@@ -280,6 +293,14 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   /// mutually exclusive.
   late AnimationController _overlayController;
 
+  /// Drives the Pause overlay entrance animation.
+  ///
+  /// Identical animation to _overlayController (500ms, Curves.easeOut) but
+  /// kept separate so that _overlayController's state is never disturbed by
+  /// pause/resume interactions. Reset and re-forwarded each time the player
+  /// pauses — supports multiple pause-resume cycles in one session.
+  late AnimationController _pauseOverlayController;
+
   // ==========================================================================
   // LEVEL COMPLETE STATE  (populated in _handleLevelComplete, read by overlay)
   // ==========================================================================
@@ -328,6 +349,15 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     // Section 6.4: "Overlay appear: ScaleTransition from center, 500ms, easeOut".
     // Starts at 0 (invisible) and is only forwarded when the overlay is shown.
     _overlayController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 500),
+    );
+
+    // 500ms ScaleTransition for the Pause overlay card.
+    // Same animation style as _overlayController. Kept separate so pause/resume
+    // cycles don't affect the terminal (game over / level complete) overlay state.
+    // reset() is called in _onResume() so it's ready for the next pause cycle.
+    _pauseOverlayController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 500),
     );
@@ -387,6 +417,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
     _scoreHighlightController.dispose();
     _overlayController.dispose();
+    _pauseOverlayController.dispose();
     _textController.dispose();
     _inputFocusNode.dispose();
 
@@ -416,8 +447,8 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   /// Stage 2: called once at startup.
   /// Stage 3+: called repeatedly by a Timer.periodic at spawnDelay intervals.
   void _spawnWord() {
-    // Don't spawn new words after game over or level complete.
-    if (_isGameOver || _isLevelComplete) return;
+    // Don't spawn new words after game over, level complete, or while paused.
+    if (_isGameOver || _isLevelComplete || _isPaused) return;
 
     // Ask GameManager for the next word.
     // It picks the correct word length based on how many words the player
@@ -581,10 +612,13 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   /// for game over. The word is NOT removed immediately — it stays on screen
   /// for the duration of the red pulse so the player can see what hit.
   void _onWordHitGround(FallingWord word) {
-    // Don't count ground hits after game over or level complete.
+    // Don't count ground hits after game over, level complete, or while paused.
     // (Multiple words may finish their fall simultaneously — only process
     // ones where the game is still actively running.)
-    if (_isGameOver || _isLevelComplete) {
+    // Note: _isPaused should never trigger this path because _onPausePressed()
+    // calls word.controller.stop() on all falling words, preventing completion
+    // events from firing. This guard is a defensive safety net.
+    if (_isGameOver || _isLevelComplete || _isPaused) {
       _removeWord(word);
       return;
     }
@@ -751,23 +785,26 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
   /// Starts the periodic word spawner.
   ///
-  /// Spawns the first word immediately (so the player doesn't wait for
-  /// the first tick), then spawns additional words at the level's spawn
-  /// delay interval (5000ms for Level 1, 3000ms for Level 5 — Section 5.2).
+  /// [spawnImmediately] controls whether one word is spawned right now before
+  /// the first timer tick fires:
+  ///   - true (default): used on initial game start — the player shouldn't
+  ///     stare at an empty screen for a full spawnDelay interval.
+  ///   - false: used when resuming from pause — words from before the pause
+  ///     are already mid-fall, so we just restart the periodic timer without
+  ///     injecting an extra word at resume time.
   ///
-  /// WHY spawn immediately first?
-  /// Timer.periodic waits for one full interval before the first callback.
-  /// That means on Level 1 the player would stare at an empty screen for
-  /// 5 seconds before the first word appears. Calling _spawnWord() directly
-  /// first gives an instant start.
+  /// Timer.periodic always waits for one full interval before the first
+  /// callback fires. On Level 1 that would be a 5 s empty screen — the
+  /// [spawnImmediately: true] path solves this without needing a one-shot
+  /// timer stacked on top of the periodic one.
   ///
   /// WHY cap at 10 words?
   /// Section 5.2 states "maximum 10 simultaneous falling words". Beyond 10
   /// the screen becomes unreadable and performance degrades. The timer still
   /// fires but skips spawning if the cap is already reached.
-  void _startSpawnTimer() {
-    // Spawn the very first word right now (no wait for first timer tick).
-    _spawnWord();
+  void _startSpawnTimer({bool spawnImmediately = true}) {
+    // Optionally spawn one word right now, before the first timer tick.
+    if (spawnImmediately) _spawnWord();
 
     // Then keep spawning at the level's spawnDelay interval.
     _spawnTimer = Timer.periodic(widget.level.spawnDelayDuration, (_) {
@@ -811,19 +848,100 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
   /// Called when the player taps the Pause button.
   ///
-  /// Stage 7 will pause all controllers, stop the stopwatch, and show
-  /// the pause overlay. For now, just show a placeholder snackbar.
+  /// Freezes all active falling word animations, stops the spawn timer and
+  /// stopwatch, then shows the Pause overlay card with current level stats.
+  ///
+  /// Per documentation Section 5.6 / 6.6:
+  ///   - All timers and animations pause/freeze on tapping pause
+  ///   - Overlay shows: level name, score, time spent, lives remaining
+  ///   - "Resume Game" restores everything; "End Game" exits without saving
   void _onPausePressed() {
-    // TODO Stage 7: for (final word in _fallingWords) { word.controller.stop(); }
-    // TODO Stage 7: _stopwatch.stop(); _timerUpdateTimer?.cancel();
-    // TODO Stage 7: Show the pause overlay widget over the game.
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Pause overlay — coming in Stage 7!'),
-        duration: Duration(seconds: 1),
-        backgroundColor: Color(0xFF667eea),
-      ),
-    );
+    // Don't allow pausing after the game has already ended or been won.
+    if (_isGameOver || _isLevelComplete) return;
+
+    _isPaused = true;
+
+    // Stop the spawn timer so no new words appear while paused.
+    _spawnTimer?.cancel();
+    _spawnTimer = null;
+
+    // Freeze the stopwatch — elapsed time must be preserved across pause/resume.
+    // Dart's Stopwatch.stop() does NOT reset the elapsed value; it just stops
+    // accumulating time. Calling start() later resumes from the same point.
+    _timerUpdateTimer?.cancel();
+    _stopwatch.stop();
+
+    // Freeze all currently falling words in place at their current y position.
+    // Words already mid-match-animation or mid-ground-hit are left alone —
+    // they are nearly off screen and stopping them mid-animation looks jarring.
+    for (final word in _fallingWords) {
+      if (!_matchControllers.containsKey(word.id) &&
+          !_groundHitControllers.containsKey(word.id)) {
+        word.controller.stop();
+      }
+    }
+
+    // Dismiss the keyboard — the player can't type while paused.
+    _inputFocusNode.unfocus();
+
+    // Show the pause overlay: _isPaused = true puts it in the Stack, then
+    // animate the card in from scale 0→1 (same 500ms easeOut as other overlays).
+    setState(() {}); // _isPaused is now true → overlay widget enters the tree
+    _pauseOverlayController.forward();
+  }
+
+  /// Called when the player taps "Resume Game" in the Pause overlay.
+  ///
+  /// Dismisses the overlay, restores all frozen falling word animations,
+  /// and restarts both the spawn timer (without an immediate extra spawn —
+  /// existing words are mid-fall) and the stopwatch display timer.
+  void _onResume() {
+    // Reset the pause controller to 0 so it's ready for the next pause cycle.
+    // (If we didn't reset, the next forward() call would be a no-op because
+    // the controller would already be at its maximum value of 1.0.)
+    _pauseOverlayController.reset();
+
+    _isPaused = false;
+
+    // Resume all word fall animations from where they were stopped.
+    // Skip words in matchControllers or groundHitControllers — those were NOT
+    // paused (they were nearly finished) and calling forward() on a controller
+    // that is still running or already at 1.0 would be incorrect.
+    for (final word in _fallingWords) {
+      if (!_matchControllers.containsKey(word.id) &&
+          !_groundHitControllers.containsKey(word.id)) {
+        word.controller.forward();
+      }
+    }
+
+    // Restart the clock from where it stopped.
+    // Dart's Stopwatch.start() on a stopped (not reset) watch resumes from
+    // the existing elapsed time — so the display updates continuously.
+    // _startTimer() also creates a fresh Timer.periodic for the display update
+    // (the old one was cancelled by _onPausePressed).
+    _startTimer();
+
+    // Restart the periodic spawn timer WITHOUT an immediate spawn.
+    // Existing words are already mid-fall on screen — we only want the
+    // timer to resume generating new words at the normal spawn interval.
+    _startSpawnTimer(spawnImmediately: false);
+
+    // Re-focus the input field so the player can type immediately on resume.
+    _inputFocusNode.requestFocus();
+
+    setState(() {}); // _isPaused is now false → overlay removed from Stack
+  }
+
+  /// Called when the player taps "End Game" in the Pause overlay.
+  ///
+  /// Exits the game WITHOUT saving any progress for this run.
+  /// Pops this GameScreen, returning to LevelSelectionScreen.
+  ///
+  /// WHY no progress save?
+  /// The player chose to abandon the level mid-run. Saving a partial score
+  /// would be misleading — only fully completed runs count toward best times.
+  void _onEndGame() {
+    Navigator.pop(context);
   }
 
   /// Called on every keystroke in the answer field.
@@ -845,8 +963,8 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   /// A word in _matchControllers is mid-animation — already matched. We
   /// must not match it again (which would double-score or double-remove).
   void _onInputChanged(String value) {
-    // No matching after game over or level complete.
-    if (_isGameOver || _isLevelComplete) return;
+    // No matching after game over, level complete, or while paused.
+    if (_isGameOver || _isLevelComplete || _isPaused) return;
 
     // Normalise: uppercase and strip stray whitespace.
     // TextCapitalization.characters already forces uppercase, but we
@@ -1313,6 +1431,126 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   }
 
   // ==========================================================================
+  // PAUSE OVERLAY WIDGET  (Stage 7)
+  // ==========================================================================
+
+  /// The Pause overlay card.
+  ///
+  /// Shows the player's current progress (level name, score, elapsed time,
+  /// and lives remaining) while the game is frozen, then offers two buttons:
+  ///   - "Resume Game" (primary): restores all animations and timers
+  ///   - "End Game"   (outlined): exits to Level Selection without saving
+  ///
+  /// Entry animation: ScaleTransition driven by _pauseOverlayController
+  /// (0→1, 500ms, Curves.easeOut) — identical style to the other overlays
+  /// (Section 6.4: "Overlay appear: ScaleTransition from center, 500ms, easeOut").
+  Widget _buildPauseOverlay() {
+    return Container(
+      // Semi-transparent black backdrop dims the frozen game beneath.
+      color: Colors.black.withValues(alpha: 0.65),
+      child: Center(
+        child: ScaleTransition(
+          // Animated scale from 0 to 1 — creates the "pop in" effect.
+          scale: CurvedAnimation(
+            parent: _pauseOverlayController,
+            curve: Curves.easeOut,
+          ),
+          child: Container(
+            margin: const EdgeInsets.symmetric(horizontal: 28.0),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(24.0),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.35),
+                  blurRadius: 24.0,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 28.0,
+                vertical: 32.0,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min, // Shrink-wrap to content
+                children: [
+                  // ── APP NAME ────────────────────────────────────────────────
+                  // Small muted label above the icon anchors the overlay to
+                  // the game brand — helpful context when the screen is frozen.
+                  const Text(
+                    'WORD DROP',
+                    style: TextStyle(
+                      fontSize: 13.0,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFFAAAAAA), // Muted gray
+                      letterSpacing: 3.0,
+                    ),
+                  ),
+                  const SizedBox(height: 8.0),
+
+                  // ── ICON ──────────────────────────────────────────────────
+                  const Icon(
+                    Icons.pause_circle_filled_rounded,
+                    color: Color(0xFF764ba2), // Deep purple (app accent colour)
+                    size: 52.0,
+                  ),
+                  const SizedBox(height: 10.0),
+
+                  // ── TITLE ─────────────────────────────────────────────────
+                  const Text(
+                    'PAUSED',
+                    style: TextStyle(
+                      fontSize: 26.0,
+                      fontWeight: FontWeight.w900,
+                      color: Color(0xFF333333),
+                      letterSpacing: 2.0,
+                    ),
+                  ),
+                  const SizedBox(height: 22.0),
+
+                  // ── STATS ─────────────────────────────────────────────────
+                  // Shows the player's live progress so they can decide whether
+                  // to resume or cut the run short.
+                  _buildOverlayStatRow('Level', widget.level.name),
+                  const SizedBox(height: 8.0),
+                  _buildOverlayStatRow('Score', '$_score / 100'),
+                  const SizedBox(height: 8.0),
+                  _buildOverlayStatRow('Time', _timerDisplay),
+                  const SizedBox(height: 8.0),
+                  // Lives: "remaining / total" — e.g. "2 / 3" for Level 1
+                  _buildOverlayStatRow(
+                    'Lives',
+                    '$_lives / ${widget.level.lives}',
+                  ),
+                  const SizedBox(height: 28.0),
+
+                  // ── BUTTONS ───────────────────────────────────────────────
+                  // Resume is the primary CTA — most players pause briefly
+                  // and want to continue without thinking about it.
+                  _buildOverlayButton(
+                    'Resume Game',
+                    onPressed: _onResume,
+                    isPrimary: true,
+                  ),
+                  const SizedBox(height: 10.0),
+                  // End Game exits to Level Select without saving. Secondary
+                  // action — outlined style signals it is the destructive option.
+                  _buildOverlayButton(
+                    'End Game',
+                    onPressed: _onEndGame,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ==========================================================================
   // OVERLAY HELPER WIDGETS  (Stage 6)
   // ==========================================================================
 
@@ -1493,6 +1731,13 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
               // Same entry animation as the Game Over overlay.
               if (_isLevelComplete)
                 Positioned.fill(child: _buildLevelCompleteOverlay()),
+
+              // PAUSE OVERLAY (Section 6.6)
+              // Appears when the player taps the Pause button mid-game.
+              // All falling word animations and timers are frozen while shown.
+              // "Resume Game" restores the game; "End Game" exits without saving.
+              if (_isPaused)
+                Positioned.fill(child: _buildPauseOverlay()),
             ],
           ),
         ),
