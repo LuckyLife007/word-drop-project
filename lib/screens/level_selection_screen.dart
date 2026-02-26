@@ -27,6 +27,7 @@
 import 'package:flutter/material.dart';
 import '../managers/progress_manager.dart';
 import '../models/level_config.dart';
+import 'game_screen.dart'; // The screen we navigate to when a level is tapped
 
 // ============================================================================
 // LEVEL SELECTION SCREEN WIDGET
@@ -153,13 +154,34 @@ class _LevelSelectionScreenState extends State<LevelSelectionScreen>
   /// Called when the player taps an unlocked level card.
   /// [level] - The level configuration for the tapped card.
   void _onLevelTapped(LevelConfig level) {
-    // TODO: Navigate to GameScreen(level: level) once it's built.
-    // For now, show a snackbar confirming the tap works.
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Starting ${level.displayLabel}... (Game screen coming soon!)'),
-        duration: const Duration(seconds: 2),
-        backgroundColor: const Color(0xFF4CAF50), // Green = positive action
+    // Navigate to the Game Screen, passing the selected level's config.
+    // The game screen uses this to set the correct fall speed, spawn rate,
+    // and starting lives.
+    //
+    // Per Section 6.4: "SlideTransition (400ms) for level start"
+    // A slide-up feels more "into the action" than a fade, which suits
+    // the transition from choosing a level to actually playing it.
+    Navigator.of(context).push(
+      PageRouteBuilder(
+        transitionDuration: const Duration(milliseconds: 400),
+
+        pageBuilder: (context, animation, secondaryAnimation) =>
+            GameScreen(level: level),
+
+        // The game screen slides UP from the bottom as it enters.
+        // Offset(0, 1) = starts fully below the screen.
+        // Offset.zero  = ends at its normal on-screen position.
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          final slideAnimation = Tween<Offset>(
+            begin: const Offset(0, 1), // Start: below the screen
+            end: Offset.zero,          // End: normal position
+          ).animate(CurvedAnimation(
+            parent: animation,
+            curve: Curves.easeOutCubic, // Fast start, smooth settle
+          ));
+
+          return SlideTransition(position: slideAnimation, child: child);
+        },
       ),
     );
   }

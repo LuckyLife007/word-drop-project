@@ -1,7 +1,7 @@
 # Word Drop — Development Progress
 
-**Last Updated**: February 21, 2026. 22:50 PM UTC  
-**Current Build**: Commit `4c72c06` — Splash, Main Menu, Level Selection  
+**Last Updated**: February 26, 2026
+**Current Build**: Game Screen Stages 1–3 (spawn timer + multiple words)
 **Repository**: https://github.com/LuckyLife007/word-drop-project
 
 ---
@@ -166,25 +166,30 @@ App Launch
 
 ## What Comes Next
 
-### 🔲 Game Screen (next priority)
+### ✅ Game Screen — Stages 1–3 Complete
 
-This is the most complex screen in the app. It will be built in stages:
+**Stage 1 — Static layout** ✅
+- Header (top): score display, heart icons for lives, level name in gold, timer
+- Game area (middle): Stack with SKY label (top), red ground line, GROUND label (bottom)
+- Input area (bottom): autofocused TextField (uppercase, no autocorrect) + Pause button
+- Level Selection now navigates to GameScreen with a slide-up transition
 
-**Stage 1 — Static layout**
-Get the three zones on screen with correct proportions (no movement yet):
-- Header (top 15%): score display, heart icons for lives, level name
-- Game area (middle 60%): empty Stack with SKY label at top, GROUND label at bottom
-- Input area (bottom 25%): TextField, autofocused, uppercase
+**Stage 2 — Single falling word** ✅
+- `FallingWord` class: bundles hint/clue/answer + its own `AnimationController`
+- `_spawnWord()`: asks `GameManager` for a word, creates controller, starts fall after 400ms delay (keyboard settle time)
+- `LayoutBuilder` inside game area: measures exact pixel dimensions for positioning
+- `AnimatedBuilder` + `Positioned`: moves word card from top to ground line at constant speed (`Curves.linear`)
+- `addStatusListener`: detects when animation completes → `_onWordHitGround()` removes word
+- `Stopwatch` + `Timer.periodic`: elapsed-time display counts up once first word spawns
 
-**Stage 2 — Single falling word**
-- AnimationController with `Curves.linear` animating a word card from top to bottom
-- Word card displays the hint pattern (monospace font) and clue (italic, smaller)
-- Fall duration driven by `LevelConfig.fallTime`
+**Stage 3 — Spawn timer + multiple words** ✅
+- `_startSpawnTimer()`: spawns first word immediately, then `Timer.periodic` fires at `spawnDelayDuration` intervals
+- Maximum 10 simultaneous words on screen (per Section 5.2) — timer skips spawn if cap is reached
+- `_gameAreaWidth`: set by `LayoutBuilder` via direct field assignment (no setState), used for pixel-accurate overlap checks
+- Overlap prevention in `_spawnWord()`: up to 10 retries to find an x position with ≥210px separation from all existing words (190px card + 20px buffer)
+- `_wordsCompleted` counter added: tracks correct guesses 0–20, drives word-length progression in Stage 4
 
-**Stage 3 — Spawn timer + multiple words**
-- `Timer.periodic` spawning new words at `LevelConfig.spawnDelay` intervals
-- Random x-position with overlap prevention (20px minimum buffer)
-- Maximum 10 simultaneous words on screen (per documentation Section 5.2)
+### 🔲 Game Screen — Remaining Stages
 
 **Stage 4 — Input matching**
 - `onChanged` callback checks input against all currently falling words
@@ -240,7 +245,7 @@ word_drop/
 │   └── screens/
 │       ├── main_menu_screen.dart    ✅ main menu UI
 │       ├── level_selection_screen.dart ✅ level list UI
-│       └── game_screen.dart         🔲 not yet built
+│       └── game_screen.dart         ✅ Stages 1–3 — layout, falling words, spawn timer
 ├── test/
 │   └── widget_test.dart             ✅ updated for WordDropApp
 └── pubspec.yaml                     ✅ dependencies configured
