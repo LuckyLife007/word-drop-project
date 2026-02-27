@@ -7,6 +7,8 @@
 //   2. Pre-loads the word bank from the JSON file
 //   3. Shows a splash/loading screen, then transitions to the Main Menu
 //
+// It also declares the app-wide RouteObserver (see section below).
+//
 // WHY THIS FILE EXISTS:
 // Every Flutter app needs a main() function as its starting point.
 // Think of it like the "front door" of the app - everything begins here.
@@ -16,6 +18,43 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart'; // Needed for locking screen orientation
 import 'managers/word_bank.dart';       // Our word bank loader
 import 'screens/main_menu_screen.dart'; // The main menu screen we'll show after loading
+
+// ============================================================================
+// ROUTE OBSERVER (app-wide singleton)
+// ============================================================================
+// A RouteObserver watches every navigation event in the app (pushes, pops,
+// replacements) and notifies any screen that has subscribed to it.
+//
+// HOW IT WORKS:
+//   1. We declare it here as a top-level variable so it's accessible from
+//      any screen that imports main.dart.
+//   2. We pass it to MaterialApp.navigatorObservers below — this wires it
+//      into Flutter's Navigator so it receives every route change.
+//   3. Screens that need to react to becoming visible again (like
+//      LevelSelectionScreen) mixin RouteAware and subscribe to this observer
+//      in didChangeDependencies(). When the screen above them is popped,
+//      their didPopNext() callback fires and they can call setState().
+//
+// WHY WE NEED IT (the Level 5 bug):
+//   When the player completes Level 4 and taps "Continue", GameScreen calls
+//   Navigator.pushReplacement() to replace itself with a fresh Level 5 game.
+//   pushReplacement immediately completes Level 4's route, which fires Level
+//   Selection's Navigator.push().then() callback — BEFORE Level 5 is even
+//   played. When Level 5 is eventually completed and popped, the .then()
+//   does NOT fire again (it already completed). Level Selection therefore
+//   never rebuilds to show Level 5 as COMPLETED.
+//   RouteObserver.didPopNext() fires reliably for ALL pops of the route
+//   immediately above — it's the correct solution for this class of problem.
+//
+// TYPE EXPLANATION:
+//   RouteObserver<ModalRoute<void>>:
+//   - RouteObserver is generic on the route type it watches.
+//   - ModalRoute<void> covers every full-page route (MaterialPageRoute,
+//     PageRouteBuilder, etc.), which is what we use throughout the app.
+//   - Using <ModalRoute<void>> instead of just <Route<dynamic>> ensures the
+//     observer only fires for full-page routes, not popup menus or dialogs.
+final RouteObserver<ModalRoute<void>> routeObserver =
+    RouteObserver<ModalRoute<void>>();
 
 // ============================================================================
 // APP ENTRY POINT
@@ -101,6 +140,16 @@ class WordDropApp extends StatelessWidget {
           bodyLarge: TextStyle(color: Colors.white),
         ),
       ),
+
+      // ======================================================================
+      // NAVIGATOR OBSERVERS
+      // ======================================================================
+      // Observers watch every navigation event (push, pop, replace) in the app.
+      // We register our app-wide routeObserver here so that any screen which
+      // mixes in RouteAware and subscribes to it gets lifecycle callbacks like
+      // didPopNext(). See the routeObserver declaration at the top of this file
+      // for the full explanation of why this is needed.
+      navigatorObservers: [routeObserver],
 
       // The first screen to show when the app opens.
       // SplashScreen handles loading the word bank, then navigates to MainMenuScreen.

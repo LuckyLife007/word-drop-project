@@ -1,7 +1,7 @@
 # Word Drop — Development Progress
 
 **Last Updated**: February 27, 2026
-**Current Build**: Game Screen Stages 1–7 — full gameplay complete (overlays: Game Over + Level Complete + Pause)
+**Current Build**: Game Screen Stages 1–7 complete + 3 post-launch bug fixes (double-dispose, Level 5 stale card, missing recordCorrectWord)
 **Repository**: https://github.com/LuckyLife007/word-drop-project
 
 ---
@@ -239,6 +239,29 @@ App Launch
 - `_buildPauseOverlay()`: white card on 65% black backdrop; shows "WORD DROP" label, pause icon, "PAUSED" title; stat rows for Level / Score / Time / Lives; buttons "Resume Game" (primary purple), "End Game" (outlined)
 - `_startSpawnTimer({bool spawnImmediately = true})`: new named parameter — `false` on resume so no extra word is injected; `true` (default) preserves original initial-start behaviour
 - `build()` Stack: `if (_isPaused) Positioned.fill(child: _buildPauseOverlay())` added after Game Over and Level Complete overlays
+
+---
+
+## Bug Fixes (Post-Stage-7)
+
+### ✅ Fix 1 — Double `AnimationController.dispose()` crash
+**Symptom**: `AnimationController.dispose() called more than once` exception in debug log after completing a level.
+**Root cause**: A word mid-ground-hit animation (stored in `_groundHitControllers`, still present in `_fallingWords`) could still be matched by player input. `_onInputChanged`'s loop skipped `_matchControllers` words but NOT `_groundHitControllers` words. This created both a `groundCtrl` and a `matchCtrl` for the same word; both completed and each called `_removeWord()`, double-disposing `word.controller`.
+**Fix** (`game_screen.dart`): Added `if (_groundHitControllers.containsKey(word.id)) continue;` in `_onInputChanged`'s match loop immediately after the existing `_matchControllers` check.
+
+### ✅ Fix 2 — Level 5 card not refreshing to "completed" on Level Selection return
+**Symptom**: After completing Level 5 and pressing "Level Select", all other levels showed correct state but Level 5 still appeared as "available" (not completed/best-time shown).
+**Root cause**: `Navigator.push().then()` on Level Selection fires when the pushed route is popped OR when `pushReplacement` replaces it. When the player hits "Continue" from Level 4, `pushReplacement` replaces Level 4's route with Level 5 — this immediately fires Level Selection's `.then()` callback (before Level 5 is played). When Level 5 is later completed and popped, there is no `.then()` watching it. Level Selection never rebuilds, so Level 5 keeps showing the state it had from the premature `.then()` callback.
+**Fix**:
+- `main.dart` — added top-level `routeObserver = RouteObserver<ModalRoute<void>>()` and registered it in `MaterialApp(navigatorObservers: [routeObserver])`.
+- `level_selection_screen.dart` — mixed in `RouteAware`; subscribed in `didChangeDependencies()` and unsubscribed in `dispose()`; overrode `didPopNext()` to call `setState(() {})`. This fires reliably for ALL pops of the route above Level Selection, regardless of how that route arrived.
+
+### ✅ Fix 3 — Missing `GameManager.recordCorrectWord()` (compile error)
+**Symptom**: `flutter analyze` reported `The method 'recordCorrectWord' isn't defined for the type 'GameManager'`.
+**Root cause**: Stage 4 added a call to `GameManager().recordCorrectWord()` in `_onInputChanged` (to advance the word-length counter so `getNextWord()` returns the correct word length), but the method was never implemented in `game_manager.dart`.
+**Fix** (`game_manager.dart`): Added `void recordCorrectWord()` as a thin public method that only increments `_wordCounterWithinLevel`. GameScreen manages its own `_score` and `_wordsCompleted`; this method advances only the counter GameScreen cannot track itself without duplicating GameManager's internal logic.
+
+---
 
 ### 🔲 After the Game Screen
 Once the game screen is complete and tested, remaining screens are:
