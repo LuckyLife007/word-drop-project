@@ -25,8 +25,10 @@
 // ============================================================================
 
 import 'package:flutter/material.dart';
+import '../main.dart' show routeObserver; // App-wide RouteObserver (for didPopNext)
 import '../managers/progress_manager.dart';
 import '../models/level_config.dart';
+import 'game_screen.dart'; // The screen we navigate to when a level is tapped
 
 // ============================================================================
 // LEVEL SELECTION SCREEN WIDGET
@@ -53,12 +55,17 @@ class LevelSelectionScreen extends StatefulWidget {
 ///   - TickerProviderStateMixin (note: not Single-) because we need TWO
 ///     AnimationControllers: one for the entrance animation, one for the
 ///     continuous pulse on the available level card.
+///   - RouteAware so that didPopNext() fires whenever the screen ABOVE this
+///     one (GameScreen) is popped. This is the reliable way to rebuild level
+///     cards after a game session — Navigator.push().then() misses the case
+///     where the previous GameScreen was reached via pushReplacement (Continue
+///     from Level 4 to Level 5). See main.dart for the full explanation.
 ///
 /// WHY TickerProviderStateMixin instead of SingleTickerProviderStateMixin?
 /// SingleTicker only supports ONE AnimationController at a time.
 /// We need two simultaneous animations, so we use the multi-ticker version.
 class _LevelSelectionScreenState extends State<LevelSelectionScreen>
-    with TickerProviderStateMixin {
+    with TickerProviderStateMixin, RouteAware {
 
   // ==========================================================================
   // ANIMATION CONTROLLERS
@@ -124,22 +131,68 @@ class _LevelSelectionScreenState extends State<LevelSelectionScreen>
     _loadProgress();
   }
 
-  /// Loads saved progress and triggers the entrance animation when done.
-  Future<void> _loadProgress() async {
-    await ProgressManager().loadProgress();
+  /// didChangeDependencies() is called:
+  ///   1. Once, right after initState(), when the widget is first inserted.
+  ///   2. Whenever an InheritedWidget above this widget changes.
+  ///
+  /// This is the correct place to subscribe to RouteObserver because
+  /// ModalRoute.of(context) returns null inside initState() — the widget
+  /// isn't attached to a route yet at that point. By didChangeDependencies(),
+  /// the route is always available.
+  ///
+  /// Subscribing here (rather than in initState) is the pattern recommended
+  /// by the Flutter documentation for RouteAware usage.
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
 
-    // Only update the UI if this widget is still on screen
+    // Subscribe this State to the app-wide routeObserver.
+    // From this point on, didPopNext() / didPushNext() / etc. will be called
+    // automatically by the Navigator whenever our route changes.
+    //
+    // ModalRoute.of(context) returns the Route that currently contains this
+    // widget. The ! asserts it's non-null — safe here because
+    // LevelSelectionScreen is always navigated to (never the app root).
+    routeObserver.subscribe(this, ModalRoute.of(context)!);
+  }
+
+  /// Loads saved progress and triggers the entrance animation when done.
+  ///
+  /// WHY guard on isLoaded?
+  /// ProgressManager.loadProgress() reads from SharedPreferences and overwrites
+  /// the singleton's in-memory values. unlockLevel() and saveBestTime() update
+  /// those values synchronously, but their async SharedPreferences writes may
+  /// not have completed yet. If loadProgress() ran again while those writes
+  /// were still in-flight, it would reset _highestUnlockedLevel and _bestTimes
+  /// back to stale data, making newly completed levels appear locked again.
+  ///
+  /// Since main.dart already calls loadProgress() once during the splash screen,
+  /// isLoaded is always true by the time this screen opens. The guard means we
+  /// never re-read from storage — we always rely on the up-to-date in-memory
+  /// values that the game screen keeps current via unlockLevel / saveBestTime.
+  Future<void> _loadProgress() async {
+    if (!ProgressManager().isLoaded) {
+      // First launch only: storage hasn't been read yet.
+      await ProgressManager().loadProgress();
+    }
+
+    // Only update the UI if this widget is still on screen.
     if (mounted) {
       setState(() {
         _progressLoaded = true;
       });
-      // Start the fade-in entrance animation
+      // Start the fade-in entrance animation.
       _entranceController.forward();
     }
   }
 
   @override
   void dispose() {
+    // Unsubscribe from RouteObserver BEFORE disposing the widget.
+    // If we skip this, the observer keeps a dead reference to this State —
+    // a memory leak that could also cause callbacks to fire on a disposed widget.
+    routeObserver.unsubscribe(this);
+
     // Always dispose AnimationControllers to avoid memory leaks
     _entranceController.dispose();
     _pulseController.dispose();
@@ -147,21 +200,94 @@ class _LevelSelectionScreenState extends State<LevelSelectionScreen>
   }
 
   // ==========================================================================
+  // ROUTE AWARE CALLBACKS
+  // ==========================================================================
+
+  /// Called by RouteObserver when the route ABOVE this one is popped — i.e.
+  /// when the player navigates BACK to Level Selection from wherever they were.
+  ///
+  /// This fires in ALL of these scenarios:
+  ///   - Player presses "Level Select" from a Game Over / Level Complete overlay
+  ///     (GameScreen is directly popped → Level Selection becomes top route)
+  ///   - Player completed Level 4, pressed "Continue" (which used
+  ///     pushReplacement to go Level 4 → Level 5), then later presses
+  ///     "Level Select" from Level 5's overlay (Level 5 is popped → Level
+  ///     Selection becomes top route again)
+  ///
+  /// The second case is the one that Navigator.push().then() CANNOT handle:
+  /// pushReplacement immediately completes Level 4's route (which fired
+  /// .then() then and there), so there is no future watching Level 5's pop.
+  /// didPopNext() fills that gap perfectly.
+  ///
+  /// Calling setState() causes _buildLevelCard to re-run for each card,
+  /// reading the latest ProgressManager values (which were updated
+  /// synchronously during the game via unlockLevel / saveBestTime).
+  @override
+  void didPopNext() {
+    if (mounted) setState(() {});
+  }
+
+  // ==========================================================================
   // NAVIGATION
   // ==========================================================================
 
   /// Called when the player taps an unlocked level card.
+  ///
+  /// Pushes GameScreen. On return, level cards are refreshed via TWO
+  /// complementary mechanisms:
+  ///
+  ///   1. .then() on Navigator.push() — fires when the pushed route is
+  ///      directly popped (most common case: player hits "Level Select",
+  ///      "Try Again", or back).
+  ///
+  ///   2. didPopNext() (RouteAware callback) — fires whenever ANY route
+  ///      above Level Selection is popped, including routes that got there
+  ///      via pushReplacement (i.e. the Continue button pushes Level 5 by
+  ///      replacing Level 4, then Level 5 is later popped — .then() fired
+  ///      at replacement time and won't fire again, but didPopNext() will).
+  ///
+  /// Together these two cover every possible route back to Level Selection.
+  ///
   /// [level] - The level configuration for the tapped card.
   void _onLevelTapped(LevelConfig level) {
-    // TODO: Navigate to GameScreen(level: level) once it's built.
-    // For now, show a snackbar confirming the tap works.
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Starting ${level.displayLabel}... (Game screen coming soon!)'),
-        duration: const Duration(seconds: 2),
-        backgroundColor: const Color(0xFF4CAF50), // Green = positive action
-      ),
-    );
+    // Navigate to the Game Screen, passing the selected level's config.
+    // The game screen uses this to set the correct fall speed, spawn rate,
+    // and starting lives.
+    //
+    // Per Section 6.4: "SlideTransition (400ms) for level start"
+    // A slide-up feels more "into the action" than a fade, which suits
+    // the transition from choosing a level to actually playing it.
+    Navigator.of(context)
+        .push(
+          PageRouteBuilder(
+            transitionDuration: const Duration(milliseconds: 400),
+
+            pageBuilder: (context, animation, secondaryAnimation) =>
+                GameScreen(level: level),
+
+            // The game screen slides UP from the bottom as it enters.
+            // Offset(0, 1) = starts fully below the screen.
+            // Offset.zero  = ends at its normal on-screen position.
+            transitionsBuilder:
+                (context, animation, secondaryAnimation, child) {
+              final slideAnimation = Tween<Offset>(
+                begin: const Offset(0, 1), // Start: below the screen
+                end: Offset.zero, // End: normal position
+              ).animate(CurvedAnimation(
+                parent: animation,
+                curve: Curves.easeOutCubic, // Fast start, smooth settle
+              ));
+
+              return SlideTransition(position: slideAnimation, child: child);
+            },
+          ),
+        )
+        .then((_) {
+      // The game route was popped — player is back on this screen.
+      // Rebuild so the level cards reflect any progress made during the session
+      // (newly unlocked levels, new best times, completed states).
+      if (mounted) setState(() {});
+    });
   }
 
   // ==========================================================================

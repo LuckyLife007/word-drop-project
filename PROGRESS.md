@@ -1,7 +1,7 @@
 # Word Drop — Development Progress
 
-**Last Updated**: February 21, 2026. 22:50 PM UTC  
-**Current Build**: Commit `4c72c06` — Splash, Main Menu, Level Selection  
+**Last Updated**: February 27, 2026
+**Current Build**: Game Screen Stages 1–7 complete + 3 post-launch bug fixes (double-dispose, Level 5 stale card, missing recordCorrectWord)
 **Repository**: https://github.com/LuckyLife007/word-drop-project
 
 ---
@@ -112,8 +112,8 @@ a lives system that varies by level.
   - **Available** (unlocked but not completed): bright white, pulsing scale animation, play icon, tappable
   - **Completed**: semi-transparent white, green checkmark, shows best time, tappable
 - Back button navigates back to Main Menu
-- Loads progress from `ProgressManager` on open
-- Tapping a level currently shows a "Coming Soon" snackbar (game screen not yet built)
+- Loads progress from `ProgressManager` on open; `isLoaded` guard prevents re-reading SharedPreferences over synchronously-updated in-memory values
+- Tapping a level navigates to `GameScreen` with a slide-up transition; `.then(() => setState({}))` refreshes card states on return so newly unlocked levels are reflected immediately
 
 ### ✅ App Entry Point (`lib/main.dart`)
 - Locks orientation to portrait-only at startup (per documentation Section 1.2)
@@ -159,52 +159,109 @@ App Launch
                             └── [PLAY] FadeTransition (300ms)
                                     └── LevelSelectionScreen
                                             └── [Back] returns to MainMenuScreen
-                                            └── [Level tap] → "Coming Soon" (game screen pending)
+                                            └── [Level tap] SlideUp (400ms) → GameScreen
+                                                    └── [Game Over] Try Again / Level Select / Main Menu
+                                                    └── [Level Complete] Continue / Replay / Level Select
+                                                    └── [Pause] Resume Game / End Game
 ```
 
 ---
 
 ## What Comes Next
 
-### 🔲 Game Screen (next priority)
+### ✅ Game Screen — All 7 Stages Complete
 
-This is the most complex screen in the app. It will be built in stages:
+**Stage 1 — Static layout** ✅
+- Header (top): score display, heart icons for lives, level name in gold, timer
+- Game area (middle): Stack with SKY label (top), red ground line, GROUND label (bottom)
+- Input area (bottom): autofocused TextField (uppercase, no autocorrect) + Pause button
+- Level Selection now navigates to GameScreen with a slide-up transition
 
-**Stage 1 — Static layout**
-Get the three zones on screen with correct proportions (no movement yet):
-- Header (top 15%): score display, heart icons for lives, level name
-- Game area (middle 60%): empty Stack with SKY label at top, GROUND label at bottom
-- Input area (bottom 25%): TextField, autofocused, uppercase
+**Stage 2 — Single falling word** ✅
+- `FallingWord` class: bundles hint/clue/answer + its own `AnimationController`
+- `_spawnWord()`: asks `GameManager` for a word, creates controller, starts fall after 400ms delay (keyboard settle time)
+- `LayoutBuilder` inside game area: measures exact pixel dimensions for positioning
+- `AnimatedBuilder` + `Positioned`: moves word card from top to ground line at constant speed (`Curves.linear`)
+- `addStatusListener`: detects when animation completes → `_onWordHitGround()` removes word
+- `Stopwatch` + `Timer.periodic`: elapsed-time display counts up once first word spawns
 
-**Stage 2 — Single falling word**
-- AnimationController with `Curves.linear` animating a word card from top to bottom
-- Word card displays the hint pattern (monospace font) and clue (italic, smaller)
-- Fall duration driven by `LevelConfig.fallTime`
+**Stage 3 — Spawn timer + multiple words** ✅
+- `_startSpawnTimer()`: spawns first word immediately, then `Timer.periodic` fires at `spawnDelayDuration` intervals
+- Maximum 10 simultaneous words on screen (per Section 5.2) — timer skips spawn if cap is reached
+- `_gameAreaWidth`: set by `LayoutBuilder` via direct field assignment (no setState), used for pixel-accurate overlap checks
+- Overlap prevention in `_spawnWord()`: up to 10 retries to find an x position with ≥210px separation from all existing words (190px card + 20px buffer)
+- `_wordsCompleted` counter added: tracks correct guesses 0–20, drives word-length progression in Stage 4
 
-**Stage 3 — Spawn timer + multiple words**
-- `Timer.periodic` spawning new words at `LevelConfig.spawnDelay` intervals
-- Random x-position with overlap prevention (20px minimum buffer)
-- Maximum 10 simultaneous words on screen (per documentation Section 5.2)
+**Stage 4 — Input matching** ✅
+- `_onInputChanged()`: live check every keystroke; length guard ≥4 chars (Section 6.3), normalises to uppercase
+- `_onInputSubmitted()`: also triggers match check (Section 6.3: "Enter key: trigger check via onSubmitted")
+- Match found: fall frozen, score +5, `_wordsCompleted++`, `GameManager.recordCorrectWord()`, field cleared + refocused instantly
+- Per-word exit animation (Section 5.5 / 6.5): 500ms — scale 1.0→1.05 + green tint in (0–250ms), then opacity 1.0→0.0 fade out (250–500ms); word removed on completion
+- `_matchControllers` map: one `AnimationController` per matched word (supports simultaneous exits)
+- `// ignore` annotations removed from `_score` and `_wordsCompleted` (both now actively used)
 
-**Stage 4 — Input matching**
-- `onChanged` callback checks input against all currently falling words
-- Match found: word removed, green flash animation (500ms), input cleared, score +5
-- No match: no feedback, player keeps typing
+**Stage 5 — Lives and scoring** ✅
+- **Overlap fix**: `_spawnWord()` now checks x AND y — only blocks a position if both axes would overlap; skips spawn cycle if no valid position found (screen full)
+- `_gameAreaHeight`: captured by LayoutBuilder, used to compute `_maxFallY` getter for y-overlap threshold
+- `_onWordHitGround()`: deducts life, triggers per-word 600ms red exit animation (scale 1.0→1.05, red tint in, then opacity→0 fade)
+- `_groundHitControllers` map: mirrors `_matchControllers` — one per ground-hit word, disposed + removed on completion
+- `_isGameOver` flag: set when `_lives` reaches 0; guards `_spawnWord()` and `_onInputChanged()` from running
+- `_handleGameOver()`: cancels spawn + clock timers, freezes all falling words, placeholder snackbar (Stage 6 will add real overlay)
+- `_scoreHighlightController`: 150ms forward + 150ms reverse = 300ms gold flash on score text after correct guess (Section 6.5)
+- `_buildStatBlock()` updated with optional `highlightController` param — score stat uses it, timer stat doesn't
 
-**Stage 5 — Lives and scoring**
-- Word reaches ground: red pulse animation (600ms), life deducted, word removed
-- Lives display updates (hearts turn from red to white as lost)
-- Score updates in header
+**Stage 5 (pre-Stage-6 fixes)** ✅
+- **Calculated-valid-range overlap prevention**: `_spawnWord()` now computes which x ranges are guaranteed clear instead of blind random retries (O(n), deterministic, uniform distribution); replaces the earlier 10-retry approach
+  - Algorithm: start with `[(0.0, usableWidth)]`, subtract each near-top word's blocked zone `[existingX ± minXSeparation]`, pick a random pixel from what remains
+  - Skips spawn cycle if no valid ranges remain (screen truly full)
+- **Score cap**: `_score` is now clamped to 100 (`(_score + 5).clamp(0, 100)`) — prevents "105/100" display
+- **Level complete detection**: `_onInputChanged()` checks `if (_wordsCompleted >= 20)` after each correct guess and calls `_handleLevelComplete()`
+- `_isLevelComplete` flag: mirrors `_isGameOver` — guards `_spawnWord()`, `_onInputChanged()`, and `_onWordHitGround()` once the level is won
+- `_handleLevelComplete()`: cancels spawn + clock timers, freezes falling words, saves best time via `ProgressManager.saveBestTime()`, unlocks next level via `ProgressManager.unlockLevel()`, placeholder snackbar (Stage 6 will add real overlay)
+- `_handleGameOver()` guards against firing if `_isLevelComplete` is already true (edge case: last word hits ground same frame as 20th word is matched — Level Complete wins)
 
-**Stage 6 — Game Over and Level Complete overlays**
-- Lives reach 0: Game Over overlay (score, "Try Again" / "Level Select" / "Main Menu")
-- Score reaches 100: Level Complete overlay (time, best time if new record, "Continue" / "Replay" / "Level Select")
-- Level Complete triggers `ProgressManager.unlockLevel()` and `saveBestTime()`
+**Stage 6 — Game Over and Level Complete overlays** ✅
+- `_overlayController`: single 500ms `AnimationController` driving a `ScaleTransition` (0→1, `Curves.easeOut`) shared by both overlays (only one can ever show at once); initialized in `initState`, disposed in `dispose`
+- `_completionTimeMs` + `_isNewBestTime`: captured in `_handleLevelComplete()` BEFORE calling `saveBestTime()` so the "New Record!" badge reflects the correct comparison
+- **`build()` Stack refactor**: `SafeArea` child changed from a bare `Column` to a `Stack` with `Positioned.fill(Column(...))` at the bottom and the two conditional overlays on top
+- **Game Over overlay** (`_buildGameOverOverlay()`): white card on 65% black backdrop; shows level name, score, encouragement message; buttons: "Try Again" (primary), "Level Select", "Main Menu"; `_getEncouragementMessage()` varies text based on score
+- **Level Complete overlay** (`_buildLevelCompleteOverlay()`): white card on 65% black backdrop; shows score (100/100), time, best time or "⭐ New Record!" badge in gold; buttons Levels 1–4: "Continue" (primary), "Replay Level", "Level Select"; Level 5 ("YOU WIN!"): "Replay Level" (primary), "Level Select", "Main Menu"; trophy icon for Level 5, checkmark for others
+- Helper widgets: `_buildOverlayStatRow()`, `_buildNewBestBadgeRow()`, `_buildOverlayButton()` (primary = filled purple, secondary = outlined)
+- Navigation methods: `_onTryAgain()` / `_onContinue()` use `Navigator.pushReplacement` + fade transition; `_onGoToLevelSelect()` uses `Navigator.pop`; `_onGoToMainMenu()` uses `Navigator.popUntil(isFirst)`
+- `_handleGameOver()` / `_handleLevelComplete()` doc comments updated (no longer reference snackbar placeholders)
 
-**Stage 7 — Pause**
-- Pause button in input area
-- Overlay: level name, score, time, lives, "Resume" / "End Game"
-- All timers and animations pause/resume correctly
+**Stage 7 — Pause** ✅
+- `_isPaused` flag: guards `_spawnWord()`, `_onInputChanged()`, and `_onWordHitGround()` while paused
+- `_pauseOverlayController`: dedicated 500ms `AnimationController` (separate from `_overlayController`) — supports multiple pause-resume cycles without resetting the terminal overlay state
+- `_onPausePressed()`: sets `_isPaused = true`, cancels spawn timer, stops stopwatch + display timer, freezes all falling word controllers (skipping any mid-match or mid-ground-hit animations), unfocuses keyboard, then `setState` + `_pauseOverlayController.forward()`
+- `_onResume()`: `_pauseOverlayController.reset()`, clears `_isPaused`, calls `word.controller.forward()` for all paused words, restarts stopwatch via `_startTimer()`, restarts spawn timer via `_startSpawnTimer(spawnImmediately: false)`, refocuses keyboard, `setState`
+- `_onEndGame()`: `Navigator.pop(context)` — exits to Level Select with no progress saved
+- `_buildPauseOverlay()`: white card on 65% black backdrop; shows "WORD DROP" label, pause icon, "PAUSED" title; stat rows for Level / Score / Time / Lives; buttons "Resume Game" (primary purple), "End Game" (outlined)
+- `_startSpawnTimer({bool spawnImmediately = true})`: new named parameter — `false` on resume so no extra word is injected; `true` (default) preserves original initial-start behaviour
+- `build()` Stack: `if (_isPaused) Positioned.fill(child: _buildPauseOverlay())` added after Game Over and Level Complete overlays
+
+---
+
+## Bug Fixes (Post-Stage-7)
+
+### ✅ Fix 1 — Double `AnimationController.dispose()` crash
+**Symptom**: `AnimationController.dispose() called more than once` exception in debug log after completing a level.
+**Root cause**: A word mid-ground-hit animation (stored in `_groundHitControllers`, still present in `_fallingWords`) could still be matched by player input. `_onInputChanged`'s loop skipped `_matchControllers` words but NOT `_groundHitControllers` words. This created both a `groundCtrl` and a `matchCtrl` for the same word; both completed and each called `_removeWord()`, double-disposing `word.controller`.
+**Fix** (`game_screen.dart`): Added `if (_groundHitControllers.containsKey(word.id)) continue;` in `_onInputChanged`'s match loop immediately after the existing `_matchControllers` check.
+
+### ✅ Fix 2 — Level 5 card not refreshing to "completed" on Level Selection return
+**Symptom**: After completing Level 5 and pressing "Level Select", all other levels showed correct state but Level 5 still appeared as "available" (not completed/best-time shown).
+**Root cause**: `Navigator.push().then()` on Level Selection fires when the pushed route is popped OR when `pushReplacement` replaces it. When the player hits "Continue" from Level 4, `pushReplacement` replaces Level 4's route with Level 5 — this immediately fires Level Selection's `.then()` callback (before Level 5 is played). When Level 5 is later completed and popped, there is no `.then()` watching it. Level Selection never rebuilds, so Level 5 keeps showing the state it had from the premature `.then()` callback.
+**Fix**:
+- `main.dart` — added top-level `routeObserver = RouteObserver<ModalRoute<void>>()` and registered it in `MaterialApp(navigatorObservers: [routeObserver])`.
+- `level_selection_screen.dart` — mixed in `RouteAware`; subscribed in `didChangeDependencies()` and unsubscribed in `dispose()`; overrode `didPopNext()` to call `setState(() {})`. This fires reliably for ALL pops of the route above Level Selection, regardless of how that route arrived.
+
+### ✅ Fix 3 — Missing `GameManager.recordCorrectWord()` (compile error)
+**Symptom**: `flutter analyze` reported `The method 'recordCorrectWord' isn't defined for the type 'GameManager'`.
+**Root cause**: Stage 4 added a call to `GameManager().recordCorrectWord()` in `_onInputChanged` (to advance the word-length counter so `getNextWord()` returns the correct word length), but the method was never implemented in `game_manager.dart`.
+**Fix** (`game_manager.dart`): Added `void recordCorrectWord()` as a thin public method that only increments `_wordCounterWithinLevel`. GameScreen manages its own `_score` and `_wordsCompleted`; this method advances only the counter GameScreen cannot track itself without duplicating GameManager's internal logic.
+
+---
 
 ### 🔲 After the Game Screen
 Once the game screen is complete and tested, remaining screens are:
@@ -240,7 +297,7 @@ word_drop/
 │   └── screens/
 │       ├── main_menu_screen.dart    ✅ main menu UI
 │       ├── level_selection_screen.dart ✅ level list UI
-│       └── game_screen.dart         🔲 not yet built
+│       └── game_screen.dart         ✅ Stages 1–7 — layout, fall, spawn, match, lives, overlays, pause
 ├── test/
 │   └── widget_test.dart             ✅ updated for WordDropApp
 └── pubspec.yaml                     ✅ dependencies configured
