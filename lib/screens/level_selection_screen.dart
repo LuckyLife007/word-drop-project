@@ -25,6 +25,7 @@
 // ============================================================================
 
 import 'package:flutter/material.dart';
+import '../main.dart' show routeObserver; // App-wide RouteObserver (for didPopNext)
 import '../managers/progress_manager.dart';
 import '../models/level_config.dart';
 import 'game_screen.dart'; // The screen we navigate to when a level is tapped
@@ -54,12 +55,17 @@ class LevelSelectionScreen extends StatefulWidget {
 ///   - TickerProviderStateMixin (note: not Single-) because we need TWO
 ///     AnimationControllers: one for the entrance animation, one for the
 ///     continuous pulse on the available level card.
+///   - RouteAware so that didPopNext() fires whenever the screen ABOVE this
+///     one (GameScreen) is popped. This is the reliable way to rebuild level
+///     cards after a game session — Navigator.push().then() misses the case
+///     where the previous GameScreen was reached via pushReplacement (Continue
+///     from Level 4 to Level 5). See main.dart for the full explanation.
 ///
 /// WHY TickerProviderStateMixin instead of SingleTickerProviderStateMixin?
 /// SingleTicker only supports ONE AnimationController at a time.
 /// We need two simultaneous animations, so we use the multi-ticker version.
 class _LevelSelectionScreenState extends State<LevelSelectionScreen>
-    with TickerProviderStateMixin {
+    with TickerProviderStateMixin, RouteAware {
 
   // ==========================================================================
   // ANIMATION CONTROLLERS
@@ -125,6 +131,31 @@ class _LevelSelectionScreenState extends State<LevelSelectionScreen>
     _loadProgress();
   }
 
+  /// didChangeDependencies() is called:
+  ///   1. Once, right after initState(), when the widget is first inserted.
+  ///   2. Whenever an InheritedWidget above this widget changes.
+  ///
+  /// This is the correct place to subscribe to RouteObserver because
+  /// ModalRoute.of(context) returns null inside initState() — the widget
+  /// isn't attached to a route yet at that point. By didChangeDependencies(),
+  /// the route is always available.
+  ///
+  /// Subscribing here (rather than in initState) is the pattern recommended
+  /// by the Flutter documentation for RouteAware usage.
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+
+    // Subscribe this State to the app-wide routeObserver.
+    // From this point on, didPopNext() / didPushNext() / etc. will be called
+    // automatically by the Navigator whenever our route changes.
+    //
+    // ModalRoute.of(context) returns the Route that currently contains this
+    // widget. The ! asserts it's non-null — safe here because
+    // LevelSelectionScreen is always navigated to (never the app root).
+    routeObserver.subscribe(this, ModalRoute.of(context)!);
+  }
+
   /// Loads saved progress and triggers the entrance animation when done.
   ///
   /// WHY guard on isLoaded?
@@ -157,10 +188,43 @@ class _LevelSelectionScreenState extends State<LevelSelectionScreen>
 
   @override
   void dispose() {
+    // Unsubscribe from RouteObserver BEFORE disposing the widget.
+    // If we skip this, the observer keeps a dead reference to this State —
+    // a memory leak that could also cause callbacks to fire on a disposed widget.
+    routeObserver.unsubscribe(this);
+
     // Always dispose AnimationControllers to avoid memory leaks
     _entranceController.dispose();
     _pulseController.dispose();
     super.dispose();
+  }
+
+  // ==========================================================================
+  // ROUTE AWARE CALLBACKS
+  // ==========================================================================
+
+  /// Called by RouteObserver when the route ABOVE this one is popped — i.e.
+  /// when the player navigates BACK to Level Selection from wherever they were.
+  ///
+  /// This fires in ALL of these scenarios:
+  ///   - Player presses "Level Select" from a Game Over / Level Complete overlay
+  ///     (GameScreen is directly popped → Level Selection becomes top route)
+  ///   - Player completed Level 4, pressed "Continue" (which used
+  ///     pushReplacement to go Level 4 → Level 5), then later presses
+  ///     "Level Select" from Level 5's overlay (Level 5 is popped → Level
+  ///     Selection becomes top route again)
+  ///
+  /// The second case is the one that Navigator.push().then() CANNOT handle:
+  /// pushReplacement immediately completes Level 4's route (which fired
+  /// .then() then and there), so there is no future watching Level 5's pop.
+  /// didPopNext() fills that gap perfectly.
+  ///
+  /// Calling setState() causes _buildLevelCard to re-run for each card,
+  /// reading the latest ProgressManager values (which were updated
+  /// synchronously during the game via unlockLevel / saveBestTime).
+  @override
+  void didPopNext() {
+    if (mounted) setState(() {});
   }
 
   // ==========================================================================
@@ -169,15 +233,20 @@ class _LevelSelectionScreenState extends State<LevelSelectionScreen>
 
   /// Called when the player taps an unlocked level card.
   ///
-  /// Pushes GameScreen and — critically — uses .then() to refresh the level
-  /// list when the player returns (via "Level Select", "Try Again", etc.).
+  /// Pushes GameScreen. On return, level cards are refreshed via TWO
+  /// complementary mechanisms:
   ///
-  /// WHY .then()?
-  /// Navigator.push() returns a Future that completes when the pushed route
-  /// is popped. The .then() callback fires at that moment, calling setState()
-  /// so the itemBuilder re-runs and reads the latest ProgressManager values
-  /// (which were updated synchronously by unlockLevel / saveBestTime during
-  /// the game). Without this, the card states can appear stale on return.
+  ///   1. .then() on Navigator.push() — fires when the pushed route is
+  ///      directly popped (most common case: player hits "Level Select",
+  ///      "Try Again", or back).
+  ///
+  ///   2. didPopNext() (RouteAware callback) — fires whenever ANY route
+  ///      above Level Selection is popped, including routes that got there
+  ///      via pushReplacement (i.e. the Continue button pushes Level 5 by
+  ///      replacing Level 4, then Level 5 is later popped — .then() fired
+  ///      at replacement time and won't fire again, but didPopNext() will).
+  ///
+  /// Together these two cover every possible route back to Level Selection.
   ///
   /// [level] - The level configuration for the tapped card.
   void _onLevelTapped(LevelConfig level) {

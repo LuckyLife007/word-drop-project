@@ -335,6 +335,12 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   void initState() {
     super.initState();
 
+    // Tell GameManager which level is starting.
+    // This resets the word counter, score, lives, and rebuilds the
+    // shuffled word queues. Without this call, the singleton carries
+    // over stale state from the previous level (Bug 1 + Bug 3 fix).
+    GameManager().startLevel(widget.level.levelNumber);
+
     _lives = widget.level.lives;
     _textController = TextEditingController();
     _inputFocusNode = FocusNode();
@@ -450,10 +456,11 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     // Don't spawn new words after game over, level complete, or while paused.
     if (_isGameOver || _isLevelComplete || _isPaused) return;
 
-    // Ask GameManager for the next word.
-    // It picks the correct word length based on how many words the player
-    // has already completed in this level (words 1–4 = 6 letters, etc.)
-    final wordData = GameManager().getNextWord();
+    // Pass the answers of all currently falling words to GameManager.
+    // This prevents the same word appearing on screen twice at once (Bug 2 fix).
+    // .map() converts each FallingWord object to just its answer string.
+    // .toList() turns the result into a plain List<String>.
+    final wordData = GameManager().getNextWord(activeWords: _fallingWords.map((w) => w.answer).toList(),);
     if (wordData == null) return; // Safety: shouldn't happen with 100 words
 
     // Create this word's AnimationController.
@@ -979,6 +986,18 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     for (final FallingWord word in List<FallingWord>.from(_fallingWords)) {
       // Skip words already mid-match-animation.
       if (_matchControllers.containsKey(word.id)) continue;
+
+      // Skip words already mid-ground-hit animation.
+      //
+      // WHY: When a word's fall reaches the ground, _onWordHitGround() creates a
+      // groundCtrl animation and stores it in _groundHitControllers. The word
+      // stays in _fallingWords for the 600ms red-flash duration. Without this
+      // guard, a player who types the answer during that 600ms window would pass
+      // the _matchControllers check (no entry yet) and trigger _onInputChanged to
+      // create a second matchCtrl for the same word. Both groundCtrl and matchCtrl
+      // call _removeWord() on completion, which tries to dispose word.controller
+      // twice — crashing with "AnimationController.dispose() called more than once".
+      if (_groundHitControllers.containsKey(word.id)) continue;
 
       if (typed == word.answer) {
         // ── CORRECT GUESS ──────────────────────────────────────────────────
