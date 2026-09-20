@@ -2,24 +2,28 @@
 
 **Branch**: `redesign/timed-word-cards` (created from `master` at `75ea4d4`)
 **Started**: September 16, 2026
-**Status**: Planning — no code changes yet. All open questions answered on
-September 20, 2026 (D1–D34). Next: Plan step 2.
+**Status**: Specification complete — no code changes yet. All open questions
+answered on September 20, 2026 (D1–D34), and the Specification section is
+written. Next: Plan step 3 (models and managers).
 
-> **Resume here (next session):** all the open questions are answered
-> (D1–D34). Start **step 2 of the Plan**: write the new game rules and the
-> screen layout in this document. Then step 3 (models and managers).
+> **Resume here (next session):** the decisions (D1–D34) and the
+> **Specification** section are complete. Start **step 3 of the Plan**: rename
+> the `LevelConfig` fields (S10) and update `level_selection_screen.dart`.
+> Then step 4: build the new game screen in stages.
 
 ---
 
 ## What This Document Is
 
 This document records the redesign of Word Drop from "falling words" to
-"timed word cards". It has four parts:
+"timed word cards". It has five parts:
 
 1. **Decisions** — what we agreed. Each decision has a number, a date and a reason.
-2. **Open questions** — what we must still decide.
-3. **Plan** — the order of the work, after we make the decisions.
-4. **Bug record** — bugs found in the old design. We check them again after the redesign.
+2. **Open questions** — what we must still decide. All are closed.
+3. **Specification** — the complete new rules and layout, built from the decisions.
+   This is the part to read before you write code.
+4. **Plan** — the order of the work.
+5. **Bug record** — bugs found in the old design. We check them again after the redesign.
 
 Update this document each time we make a decision or finish a step.
 When the redesign is complete, the final decisions go into
@@ -220,13 +224,263 @@ write the new game rules and the screen layout in this document.
 
 ---
 
+## Specification (Plan step 2)
+
+Written 2026-09-20 from decisions D1 to D34. This section is the single source
+for the build. When this section and an older decision row disagree, this
+section wins, and the decision row gets a correction.
+
+### S1. The game in short
+
+1. The game shows word cards in a grid. Each card has a hint, a clue and its
+   own countdown.
+2. The player types the full word into one input field.
+3. A correct word gives 5 points. The card flashes green and goes.
+4. A card that reaches zero flashes red and goes. The player loses 1 life.
+5. 20 correct words (100 points) complete the level. 0 lives end the game.
+
+### S2. Screen layout
+
+The screen has 4 areas, from top to bottom (D20):
+
+| # | Area | Height | Contents |
+|---|------|--------|----------|
+| 1 | Header | ~77px, fixed | Level name in gold. Below it: SCORE, hearts, TIME. No change from the code on `master`. |
+| 2 | Card grid | All remaining space | 2 columns × 3 rows = 6 positions (D17, D18). |
+| 3 | Input row | ~78px, fixed | `[text field] [+] [Pause]` (D14/H1c). |
+| 4 | Keyboard | ~40% of the screen | Always open during play (D21). |
+
+Grid geometry:
+
+- Outer padding: 12px left and right, 8px top and bottom.
+- Gap between cards: 8px.
+- Card width on a 360px screen: (360 − 24 − 8) ÷ 2 = **164px**.
+- Card height: **88px** (hint row 22px, gap 4px, clue up to 3 lines at 14px
+  line height = 42px, padding 8px + 8px, timer bar 4px).
+- Three rows need 3 × 88 + 2 × 8 = **280px**.
+
+**When the grid scrolls.** The free height for the grid is
+`screen height − safe areas (~81px) − keyboard (~40%) − header (77px) − input row (78px)`,
+which gives `0.60 × screen height − 236`. The grid needs 280px. So the grid
+scrolls on every phone with a logical height below about **860px**.
+
+| Device size | Free height | Result |
+|-------------|-------------|--------|
+| 360 × 640 | 148px | Scrolls. About 1.5 rows are visible. |
+| 390 × 844 | 270px | Scrolls a little. About 2.9 rows are visible. |
+| 412 × 915 | 313px | No scrolling. |
+
+**This is the cost of the 2-line header (your C2 answer).** Two levers can
+remove the scrolling on more phones, if you want them later:
+
+- Move the level name into the pause overlay. The header becomes ~50px, and the
+  limit falls from 860px to about 815px.
+- Use an 11px clue font with a maximum of 2 lines. The card becomes 74px, three
+  rows need 238px, and the limit falls to about 790px. **Warning:** 61 clues are
+  longer than 40 characters, so this option hides text. It contradicts D20.
+
+Scrolling rules (D23, D28):
+
+- The player scrolls with a finger. The grid never scrolls by itself.
+- A card outside the visible area keeps its countdown. It can fail unseen.
+- An up arrow shows above the grid when cards are above the visible area.
+- A down arrow shows below the grid when cards are below the visible area.
+- Each arrow blinks with a 1000ms cycle for as long as cards are hidden.
+- The arrow shows the direction only. It shows no number.
+- The arrow is white. It turns amber when a hidden card is in its last 5
+  seconds. It turns red while a hidden card shows its red flash.
+
+### S3. The word card
+
+Contents, top to bottom:
+
+1. **Hint row:** the hint pattern on the left (monospace, 18px, bold, letter
+   spacing 2), and the **seconds number** on the right (16px, bold, whole
+   seconds, D24/D29).
+2. **Clue:** italic, 12px, grey, up to 3 lines, centred (D19/D20).
+3. **Timer bar:** 4px high, on the bottom edge, full width at the start and
+   0 width at the end (D24).
+
+Card states:
+
+| State | Time | Look |
+|-------|------|------|
+| Entering | 0 to 300ms | Fade 0→1 and scale 0.95→1.0. The countdown does not run (D26). |
+| Running | until 5.0s remain | White card. Number and bar in the brand colour `#667eea`. |
+| Warning | last 5.0s | Number and bar turn amber `#FFA000` (D25). |
+| Failed | last 0.6s | Red flash (D3, D15). The number shows 0. The card cannot be matched. |
+| Matched | 500ms | Green tint, scale 1.0→1.05 for 250ms, then fade out for 250ms. |
+
+Card life, for a level card time of T seconds:
+
+| Moment | Event |
+|--------|-------|
+| 0ms | The card appears in a free grid position and starts its entrance. |
+| 300ms | The entrance ends. The countdown starts at T (D26). |
+| T − 5.0s | The number and the bar turn amber (D25). |
+| T − 0.6s | The player loses 1 life. The red flash starts. The card stops accepting answers (D15). |
+| T | The card is removed. Its grid position becomes free. |
+
+A card therefore holds its position for **T + 0.3 s**.
+
+### S4. Grid positions
+
+- The grid has 6 fixed positions. The code numbers them 0 to 5 in reading
+  order: top-left, top-right, middle-left, middle-right, bottom-left,
+  bottom-right.
+- A new card takes the **free position with the lowest number**.
+- A card keeps its position until it is removed. Cards never move (D17).
+- Empty positions stay empty. The grid does not close the gap.
+
+### S5. How new cards appear
+
+| Source | Rule |
+|--------|------|
+| Automatic | A new card appears every D seconds (D11). The interval runs only while the game runs. |
+| Full grid | When all 6 positions are full, the next card **waits**. It appears when a position becomes free. Its countdown starts then. Only 1 card waits at a time. The interval stops while a card waits, and starts again from zero when the waiting card appears (D16). |
+| "+" button | The player adds a card at once. The button is disabled when the grid is full or when a card waits. After a manual card, the interval starts again from zero (D14). |
+| Level start | The first card appears after the "3, 2, 1, Go" countdown (D30). |
+
+The word for each card comes from `GameManager().getNextWord(activeWords: ...)`.
+`activeWords` holds the answers of all cards on the screen, so the same word
+cannot appear two times at once.
+
+### S6. Input and matching
+
+- One text field, always focused during play (D21).
+- `TextCapitalization.characters`, `autocorrect: false`,
+  `enableSuggestions: false`. No change from the code on `master`.
+- The code checks the input on every change, and also on Enter.
+- The shortest word is 6 letters, so the code skips the check below 6
+  characters. (The code on `master` uses 4.)
+- A match needs the **full word**, without case and without outside spaces
+  (D10/E3).
+- The code checks the cards in grid order and stops at the first match. Only
+  one card can match, because the same word is never on the screen two times.
+- A card in the Failed or Matched state cannot match.
+- A wrong word gives **no feedback and no penalty** (D10/E2, D27).
+- After a match, the code clears the field and keeps the focus.
+
+### S7. Score, lives and the end of a level
+
+- A correct word gives **5 points**, and the code calls
+  `GameManager().recordCorrectWord()`.
+- The score display is capped at 100.
+- 20 correct words complete the level: the game saves the best time, unlocks
+  the next level, and shows the Level Complete overlay.
+- A red card removes **1 life** (D6).
+- 0 lives end the game and show the Game Over overlay.
+- The 3 overlays do not change (D10/F4).
+
+### S8. Pause, resume and the app lifecycle
+
+Pause starts in 3 ways:
+
+1. The player presses the Pause button.
+2. The player uses the system Back gesture, or any other action that would
+   close the keyboard (D21).
+3. The app goes to the background (D22).
+
+While paused:
+
+- All card countdowns stop.
+- The new-card interval stops.
+- The game clock stops.
+- The pause overlay covers the grid.
+- A pause costs nothing: no life, no points, no clock time (D32).
+
+Resume always runs the **"3, 2, 1, Go"** countdown (D30):
+
+- "3", "2" and "1" each show for 800ms. "Go" shows for 600ms. Total: 3.0s.
+- All timers stay stopped until "Go".
+- The keyboard stays open during the countdown, and the game ignores the input.
+- The same countdown runs at the start of a level.
+
+### S9. Values per level
+
+| Level | Name | Card time T | New card every D | Lives | Words |
+|-------|------|-------------|------------------|-------|-------|
+| 1 | Strolling | 30s | 5.0s | 3 | 20 |
+| 2 | Jogging | 26s | 4.5s | 4 | 20 |
+| 3 | Running | 22s | 4.0s | 5 | 20 |
+| 4 | Bolting | 18s | 3.5s | 6 | 20 |
+| 5 | Impossible | 15s | 3.0s | 7 | 20 |
+
+Word length by position in the level does not change (D10/A4, D31): words 1–4
+have 6 letters, 5–8 have 7, 9–12 have 8, 13–16 have 9, and 17–20 have 10.
+
+Animation times:
+
+| Event | Time |
+|-------|------|
+| Card entrance | 300ms |
+| Green match flash | 500ms (250ms grow and tint, 250ms fade) |
+| Red fail flash | 600ms, inside T (D13) |
+| Score gold highlight | 300ms |
+| Arrow blink cycle | 1000ms |
+| Start and resume countdown | 3000ms |
+| Screen change | 300ms fade |
+
+### S10. Code changes
+
+Removed from `game_screen.dart`:
+
+- The `FallingWord` class and the fall `AnimationController`.
+- `_spawnWord()` x-position and overlap code, `_maxFallY`, `_onWordHitGround()`.
+- The SKY label, the GROUND label, the ground line and `_buildZoneLabel()`.
+- `_buildFallingWordWidget()` and its `Positioned` layout.
+
+New in `game_screen.dart`:
+
+- A `TimedCard` class: `id`, `hint`, `clue`, `answer`, `gridIndex`, `state`,
+  and one `AnimationController` with `duration = T`.
+  The controller value 0.0→1.0 drives the bar, the number
+  (`T × (1 − value)`), the amber point and the red point.
+- A 6-position grid widget inside a scroll view.
+- The 2 blinking arrows.
+- The "+" button in the input row.
+- The "3, 2, 1, Go" overlay.
+- `WidgetsBindingObserver` for the background pause (D22).
+
+Kept without change: the header, the 3 overlays, the input field, the score
+highlight, the hearts, the clock, and the whole of `ProgressManager`.
+
+`LevelConfig` (`lib/models/level_config.dart`):
+
+- The 2 fields get new names: `fallTime` → `cardTime`, `spawnDelay` →
+  `newCardDelay`. The values do not change (D11).
+- `fallTimeDuration` → `cardTimeDuration`, `spawnDelayDuration` →
+  `newCardDelayDuration`.
+- `level_selection_screen.dart` uses `fallTime` in the card subtitle
+  ("Xs per word"). Update it in the same step.
+
+`GameManager`: no change to the public methods. `startLevel()`,
+`getNextWord(activeWords:)`, `recordCorrectWord()` and `checkAnswer()` all
+still fit. BUG-7 (unused duplicate logic) is still open.
+
+### S11. Points to confirm during the build
+
+These are small details. I propose an answer for each. Correct any of them
+when you see the build.
+
+1. A new card takes the free position with the lowest number (S4). The other
+   option is a random free position.
+2. The clue uses 3 lines and the card is 88px high (S2). Test T1 must show
+   that this is readable on a real phone.
+3. The input check starts at 6 characters (S6), not 4.
+4. The seconds number shows `0` during the red flash (S3).
+5. The arrow is white, and it changes colour with the state of the hidden
+   card (S2).
+
+---
+
 ## Plan
 
-The plan becomes detailed after we answer the open questions. Proposed order:
-
-1. Answer the open questions (Groups A → G).
-2. Write the new game rules and the screen layout in this document.
-3. Change the models and the managers (`LevelConfig`, `GameManager`).
+1. ~~Answer the open questions (Groups A → G).~~ **Done 2026-09-20 (D1–D34).**
+2. ~~Write the new game rules and the screen layout in this document.~~
+   **Done 2026-09-20 — see the Specification section above.**
+3. **Next:** change the models and the managers (`LevelConfig` field names per
+   S10, and `level_selection_screen.dart` with them).
 4. Build the new game screen in stages, with a test on a mobile device after each stage.
 5. Check each bug in the bug record again. Fix the bugs that still exist.
 6. Update `README.md`, `PROGRESS.md`, `word_drop_documentation_1-7.md` (sections 1, 2.4, 5, 6) and the widget test.
