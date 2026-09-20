@@ -674,10 +674,11 @@ class _LevelSelectionScreenState extends State<LevelSelectionScreen>
     }
 
     // AVAILABLE state - show quick summary of level challenge
-    // fallTime is in milliseconds; dividing by 1000 gives seconds
-    final int fallSeconds = level.fallTime ~/ 1000;
+    // cardTime is in milliseconds; dividing by 1000 gives seconds.
+    // (Renamed from fallTime in the redesign — REDESIGN.md S10.)
+    final int cardSeconds = level.cardTime ~/ 1000;
     return Text(
-      'Tap to play!  •  ${level.lives} lives  •  ${fallSeconds}s per word',
+      'Tap to play!  •  ${level.lives} lives  •  ${cardSeconds}s per word',
       style: TextStyle(fontSize: 12, color: subtitleColor),
     );
   }

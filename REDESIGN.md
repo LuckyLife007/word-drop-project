@@ -6,10 +6,9 @@
 answered on September 20, 2026 (D1–D34), and the Specification section is
 written. Next: Plan step 3 (models and managers).
 
-> **Resume here (next session):** the decisions (D1–D34) and the
-> **Specification** section are complete. Start **step 3 of the Plan**: rename
-> the `LevelConfig` fields (S10) and update `level_selection_screen.dart`.
-> Then step 4: build the new game screen in stages.
+> **Resume here (next session):** Plan steps 1, 2 and 3 are done. Start
+> **step 4**: build the new game screen in stages, and test on a mobile device
+> after each stage. The stages are listed under the Plan.
 
 ---
 
@@ -479,9 +478,24 @@ when you see the build.
 1. ~~Answer the open questions (Groups A → G).~~ **Done 2026-09-20 (D1–D34).**
 2. ~~Write the new game rules and the screen layout in this document.~~
    **Done 2026-09-20 — see the Specification section above.**
-3. **Next:** change the models and the managers (`LevelConfig` field names per
-   S10, and `level_selection_screen.dart` with them).
-4. Build the new game screen in stages, with a test on a mobile device after each stage.
+3. ~~Change the models and the managers.~~ **Done 2026-09-20.**
+   `LevelConfig` now uses `cardTime` and `newCardDelay` (with
+   `cardTimeDuration` and `newCardDelayDuration`). The values did not change.
+   `level_selection_screen.dart` and `game_screen.dart` use the new names.
+   `GameManager` needed no change, as section S10 says. `flutter analyze`
+   reports only the 2 known notes of BUG-10.
+4. **Next:** build the new game screen in stages. Test on a mobile device after
+   each stage.
+
+   | Stage | Content | Specification |
+   |-------|---------|---------------|
+   | 4.1 | Static layout: header, 6 empty grid positions in a scroll view, input row with the `[+]` and Pause buttons. No timers. | S2, S4 |
+   | 4.2 | One card with a working countdown: number, bar, amber at 5.0s, red flash, life loss, removal. | S3 |
+   | 4.3 | Automatic new cards, the waiting card, the limit of 6, and the `[+]` button. | S5 |
+   | 4.4 | Input matching, green flash, score, and the end of a level. | S6, S7 |
+   | 4.5 | Manual scrolling and the 2 blinking arrows. | S2 |
+   | 4.6 | Pause from all 3 sources, and the "3, 2, 1, Go" countdown at start and at every resume. | S8 |
+   | 4.7 | Check the 3 overlays, remove the dead code from the old design, and confirm the 5 points in S11. | S10, S11 |
 5. Check each bug in the bug record again. Fix the bugs that still exist.
 6. Update `README.md`, `PROGRESS.md`, `word_drop_documentation_1-7.md` (sections 1, 2.4, 5, 6) and the widget test.
 7. Test the full game on mobile devices. Then merge to `master`.

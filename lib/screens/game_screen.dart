@@ -28,13 +28,13 @@
 //   - Fall distance: effective height = game area height - groundOffset - cardHeight
 //
 // Section 5.3 — Fall Speed Calculations:
-//   - Fall duration from LevelConfig.fallTime (e.g. 30000ms for Level 1)
+//   - Fall duration from LevelConfig.cardTime (e.g. 30000ms for Level 1)
 //
 // Section 5.4 — Collision Detection:
 //   - Use Animation.addStatusListener to detect AnimationStatus.completed
 //
 // Section 5.5 — Animation Durations:
-//   - Fall: Curves.linear, duration = fallTime
+//   - Fall: Curves.linear, duration = cardTime
 //   - Spawn fade-in: TODO (will be added as polish)
 //
 // Section 6.2 — Visual Hierarchy for word cards:
@@ -119,7 +119,7 @@ class FallingWord {
 
   /// Drives the word's vertical fall from value 0.0 (top) to 1.0 (ground line).
   ///
-  /// - Duration  = widget.level.fallTimeDuration (e.g. 30s for Level 1)
+  /// - Duration  = widget.level.cardTimeDuration (e.g. 30s for Level 1)
   /// - Curve     = Curves.linear (constant velocity, per Section 5.1)
   /// - Disposed  in _removeWord() when the word leaves the screen
   final AnimationController controller;
@@ -266,7 +266,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   /// on a widget that no longer exists.
   Timer? _timerUpdateTimer;
 
-  /// Fires every spawnDelay milliseconds to spawn a new falling word.
+  /// Fires every newCardDelay milliseconds to spawn a new falling word.
   /// Level 1: every 5000ms. Level 5: every 3000ms (per Section 5.2).
   /// Stored so it can be cancelled in dispose() and on pause (Stage 7).
   Timer? _spawnTimer;
@@ -383,7 +383,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       Future.delayed(const Duration(milliseconds: 400), () {
         // Start the spawn timer instead of a single spawn.
         // _startSpawnTimer() spawns the first word immediately, then keeps
-        // spawning more at the level's spawnDelay interval.
+        // spawning more at the level's newCardDelay interval.
         if (mounted) _startSpawnTimer();
       });
     });
@@ -451,7 +451,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   /// Spawns a single falling word.
   ///
   /// Stage 2: called once at startup.
-  /// Stage 3+: called repeatedly by a Timer.periodic at spawnDelay intervals.
+  /// Stage 3+: called repeatedly by a Timer.periodic at newCardDelay intervals.
   void _spawnWord() {
     // Don't spawn new words after game over, level complete, or while paused.
     if (_isGameOver || _isLevelComplete || _isPaused) return;
@@ -468,7 +468,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     // duration: the fall time from the level config (e.g. 30 000ms for Level 1).
     final controller = AnimationController(
       vsync: this,
-      duration: widget.level.fallTimeDuration,
+      duration: widget.level.cardTimeDuration,
     );
 
     // OVERLAP PREVENTION — CALCULATED VALID RANGE APPROACH
@@ -603,7 +603,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     setState(() => _fallingWords.add(word));
 
     // Start the fall animation. The word will move from value 0.0 to 1.0
-    // over the fallTimeDuration at constant (linear) speed.
+    // over the cardTimeDuration at constant (linear) speed.
     controller.forward();
 
     // Start the stopwatch the first time a word is spawned.
@@ -795,7 +795,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   /// [spawnImmediately] controls whether one word is spawned right now before
   /// the first timer tick fires:
   ///   - true (default): used on initial game start — the player shouldn't
-  ///     stare at an empty screen for a full spawnDelay interval.
+  ///     stare at an empty screen for a full newCardDelay interval.
   ///   - false: used when resuming from pause — words from before the pause
   ///     are already mid-fall, so we just restart the periodic timer without
   ///     injecting an extra word at resume time.
@@ -813,8 +813,8 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     // Optionally spawn one word right now, before the first timer tick.
     if (spawnImmediately) _spawnWord();
 
-    // Then keep spawning at the level's spawnDelay interval.
-    _spawnTimer = Timer.periodic(widget.level.spawnDelayDuration, (_) {
+    // Then keep spawning at the level's newCardDelay interval.
+    _spawnTimer = Timer.periodic(widget.level.newCardDelayDuration, (_) {
       if (!mounted) return; // Widget disposed — stop safely
 
       // Section 5.2: cap at 10 simultaneous words on screen.
