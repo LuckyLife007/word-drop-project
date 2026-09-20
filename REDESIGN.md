@@ -2,13 +2,16 @@
 
 **Branch**: `redesign/timed-word-cards` (created from `master` at `75ea4d4`)
 **Started**: September 16, 2026
-**Status**: Specification complete — no code changes yet. All open questions
-answered on September 20, 2026 (D1–D34), and the Specification section is
-written. Next: Plan step 3 (models and managers).
+**Status**: Building. Decisions D1–D34 and the Specification are complete.
+Plan steps 1 to 3 are done, and **stage 4.1 (static layout) is built and tested
+on a real phone**. Next: open question I1 (make the sections shorter), then
+stage 4.2.
 
-> **Resume here (next session):** Plan steps 1, 2 and 3 are done. Start
-> **step 4**: build the new game screen in stages, and test on a mobile device
-> after each stage. The stages are listed under the Plan.
+> **Resume here (next session):** Plan steps 1 to 3 and **stage 4.1** are done,
+> and stage 4.1 is tested on a real phone. **Start with open question I1:**
+> make the sections shorter so 3 card rows fit with the keyboard open (the grid
+> is 30px too tall; see the measured table in the Decisions part). Then
+> continue with **stage 4.2**: one card with a real countdown.
 
 ---
 
@@ -130,6 +133,38 @@ a trademark search. Google Play also allows two apps with the same name.
 | **Tickword** | Used: a word game with a 10-second timer, shown on Hacker News in April 2026. "Tick Tock Word" is also on the App Store. |
 | **Gap Race** | **No game found.** The near names (Word Race, Word Rush, Word Fusion) are different games. Best candidate if we rename at Plan step 6. |
 
+**Measured on the phone, 2026-09-20 (stage 4.1 build).** Device: Redmi
+23106RN0DA, Android 13, screen 720 × 1600 physical = **360 × 800 logical**.
+Numbers read from 3 screenshots (1 screenshot pixel = 0.625 logical pixels).
+
+| Part of the screen | Logical height | My estimate in S2 |
+|--------------------|----------------|-------------------|
+| Status bar | 37px | ~24px |
+| Header (2 lines) | **84px** | 77px |
+| **Free height for the grid** | **266px** | 270px on a 390 × 844 phone |
+| Input row | **78px** | 78px |
+| Keyboard (MIUI, with the tool row) | 290px | ~40% = 320px |
+| Navigation bar | ~45px | not counted |
+
+The card renders at exactly **88px**, as `kCardHeight` sets.
+
+**What the grid needs:** 3 cards (264px) + 2 gaps (16px) + top and bottom
+padding (16px) = **296px**. The phone gives 266px. **The grid is 30px too
+tall.** The screenshots show this: 2 full rows and most of the third row.
+
+**Where 30px can come from (open question I1):**
+
+| Lever | Saving | Cost |
+|-------|--------|------|
+| Header 84px → ~50px: move the level name into the pause overlay | 34px | The level name is not visible during play. |
+| Input row 78px → ~64px: buttons 52px → 44px, less padding | 14px | Smaller touch targets. 44px is still above the 48dp guide only with the padding included — measure again. |
+| Grid padding 16px → 8px | 8px | Cards sit closer to the screen edges. |
+| Card 88px → 80px: clue on 2 lines at 11px | 24px | Hides text on 61 long clues. Contradicts D20. |
+| Gap 8px → 6px | 4px | Cards look closer together. |
+
+The first lever alone is enough (34px ≥ 30px). The first three together give
+56px, which also covers phones a little shorter than this one.
+
 **Effect of D26 (added 2026-09-20):** the countdown starts after the ~300ms
 entrance animation, so a card holds its position for **T + 0.3s**, not T. The
 automatic count is then ceil((T + 0.3) ÷ D): Level 1 gives 7, and Levels 2 to 5
@@ -182,12 +217,13 @@ We answer these one group at a time. Move each answer to **Decisions**.
   - Hints: 6 to 10 characters.
   - Clues: 300 clues, 9 to 54 characters, average 34. 130 clues are longer than 35 characters, and 61 are longer than 40.
   - A 2-column card is about 165px wide on a normal phone. A clue line holds about 22 to 24 characters at 12px.
-- **Test item T1 (updated 2026-09-20):** on a small phone (for example, 360 × 640)
-  about 181px of height is free above the keyboard, and 3 rows need 216px to
-  268px. Measure this on a real device, because the keyboard height changes with
-  the keyboard app. **D20 answers the case where the rows do not fit: the grid
-  scrolls.** Test that the scrolling grid, the manual scroll (D23) and the
-  blinking arrow (D28) work on that screen.
+- ~~Test item T1~~ → **Answered on a real phone, 2026-09-20.** Device: Redmi
+  23106RN0DA, Android 13, stage 4.1 build. With the keyboard open the player
+  sees **2 full rows and part of the third row** (about 5 of the 6 positions).
+  The grid scrolls, the manual scroll works, and the position order 0,1 / 2,3 /
+  4,5 is correct. **Result: scrolling is the normal case on this phone, not an
+  exception.** The blinking arrows (D28, stage 4.5) are therefore needed, not
+  optional. The card height of 88px stays.
 
 ### Group D — The card timer
 
@@ -212,14 +248,26 @@ We answer these one group at a time. Move each answer to **Decisions**.
 - ~~H1a · H1b · H1c · H1d · H1e~~ → Decided: D14
 - ~~D13-Q (red flash detail)~~ → Decided: D15
 
+### Group I — Section heights (new, from the device test on 2026-09-20)
+
+- **I1.** Which sections do we make shorter, so that 3 card rows fit with the
+  keyboard open? The grid is 30px too tall on the test phone. The table above
+  the Open Questions lists 5 levers and what each one saves. **Z3 asked for this
+  change after seeing the screenshots.** It is the first item for the next
+  session.
+- **I2.** Does the level name stay on the game screen? Lever 1 moves it into the
+  pause overlay, where the name is already shown.
+- **I3.** How small may the `[+]` and Pause buttons become? They are 52px now.
+  The Android guide asks for 48dp of touch target.
+
 ### Group G — Text and documents
 
 - ~~G1 (tagline)~~ → Decided: D33
 - ~~G3 (game name)~~ → Decided: D34 (keep "Word Drop" for now; decide at Plan step 6)
 - (G2 moved to the Plan, step 6.)
 
-**All open questions are now closed.** The next step is step 2 of the Plan:
-write the new game rules and the screen layout in this document.
+**Group I is open** (section heights, from the device test on 2026-09-20).
+All the other questions are closed.
 
 ---
 
@@ -489,13 +537,13 @@ when you see the build.
 
    | Stage | Content | Specification |
    |-------|---------|---------------|
-   | 4.1 | Static layout: header, 6 empty grid positions in a scroll view, input row with the `[+]` and Pause buttons. No timers. | S2, S4 |
+   | 4.1 | ~~Static layout: header, 6 empty grid positions in a scroll view, input row with the `[+]` and Pause buttons. No timers.~~ **Done 2026-09-20.** The falling-word engine was removed in this stage, not in 4.7, so the file holds no dead code between stages. **Test T1 is open: measure the grid on a real phone.** | S2, S4 |
    | 4.2 | One card with a working countdown: number, bar, amber at 5.0s, red flash, life loss, removal. | S3 |
    | 4.3 | Automatic new cards, the waiting card, the limit of 6, and the `[+]` button. | S5 |
    | 4.4 | Input matching, green flash, score, and the end of a level. | S6, S7 |
    | 4.5 | Manual scrolling and the 2 blinking arrows. | S2 |
    | 4.6 | Pause from all 3 sources, and the "3, 2, 1, Go" countdown at start and at every resume. | S8 |
-   | 4.7 | Check the 3 overlays, remove the dead code from the old design, and confirm the 5 points in S11. | S10, S11 |
+   | 4.7 | Check the 3 overlays and confirm the 5 points in S11. (The dead-code removal moved to stage 4.1.) | S10, S11 |
 5. Check each bug in the bug record again. Fix the bugs that still exist.
 6. Update `README.md`, `PROGRESS.md`, `word_drop_documentation_1-7.md` (sections 1, 2.4, 5, 6) and the widget test.
 7. Test the full game on mobile devices. Then merge to `master`.
@@ -520,6 +568,7 @@ Check each bug again after the redesign. Set **Status** to one of:
 | BUG-8 | `main.dart` | Wrong comments: the splash screen does not load progress (Level Select does), and the orientation comment says upside-down portrait is blocked (the code only sets `portraitUp`). | No | Open |
 | BUG-9 | `PROGRESS.md` | Names a method `advanceLevel()` that does not exist. | Yes — `PROGRESS.md` will be rewritten. | Open |
 | BUG-10 | `game_manager.dart` | 2 analyzer info notes: unnecessary string interpolation at lines 641 and 658. | Maybe | Open |
+| BUG-11 | startup (web build) | An uncaught `AssertionError` appears in the browser console during start, **before** the word bank loads. It happens in `main()` or in the engine start, not in the game screen. The app then runs correctly. Found on 2026-09-20 with `flutter run -d web-server` in debug mode. The cause is not identified. The orientation lock in `main.dart` is the first suspect, because a browser on a desktop cannot lock the screen orientation. **Checked on Android on 2026-09-20: the phone log shows no assertion and no exception, so this is a web-only problem.** | No | Open (web only) |
 
 ### Features in the old design document that are not built
 
