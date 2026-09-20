@@ -39,6 +39,61 @@ a lives system that varies by level.
 - **Version control**: Git + GitHub
 - **Testing done on**: Chrome (web), Windows desktop, physical Android device, virtual Android device
 
+### Testing on a physical Android phone (wireless, no cable)
+
+Tested on 2026-09-20 with a Redmi 23106RN0DA, Android 13.
+
+1. On the phone: turn on **Developer options**, then **USB debugging**, then
+   **Wireless debugging** (Android 11 or newer).
+2. On the phone: open Wireless debugging, then **Pair device with pairing code**.
+   Note the address, the port and the 6-digit code.
+3. On the PC: `adb pair <ip>:<pair-port> <code>`
+4. On the phone: read **IP address & Port** on the Wireless debugging screen.
+   **This port is different from the pairing port.**
+5. On the PC: `adb connect <ip>:<port>`, then `flutter run -d <ip>:<port>`.
+6. On MIUI the install can fail with `INSTALL_FAILED_USER_RESTRICTED`. Turn on
+   **Install via USB** and **USB debugging (Security settings)** in Developer
+   options. The same error appears if you tap Cancel on the install request.
+
+### PC problem: "Unable to establish loopback connection" (solved)
+
+**Symptom:** every Android build fails after 3 to 5 seconds with
+`java.io.IOException: Unable to establish loopback connection`. `flutter analyze`
+and `flutter test` still work, because they do not use Gradle.
+
+**Cause:** Java 21 builds its internal pipe from an **AF_UNIX socket file**, and
+it puts that file in the temp folder. Every Java selector needs that pipe, so
+Gradle cannot start. On this PC, AF_UNIX connect fails inside `AppData\Local`:
+
+| Folder for the socket file | Result |
+|---------------------------|--------|
+| `C:\Temp` | OK |
+| `C:\Users\<user>` | OK |
+| `C:\Users\<user>\AppData\Local` | FAILED — Invalid argument |
+| `C:\Users\<user>\AppData\Local\Temp` (the default) | FAILED — Invalid argument |
+
+Plain TCP loopback works, the `afunix` driver runs, and no third-party
+antivirus is installed. The block is specific to `AppData\Local`.
+
+**Fix (set on this PC on 2026-09-20):** a user environment variable that moves
+that one socket file out of `AppData\Local`:
+
+```
+JAVA_TOOL_OPTIONS = -Djdk.net.unixdomain.tmpdir=C:\Temp
+```
+
+The folder `C:\Temp` must exist. Every Java program then prints one line,
+`Picked up JAVA_TOOL_OPTIONS: ...`, which is normal and harmless.
+
+**To test the PC quickly:** a 3-line Java program that calls `Selector.open()`
+fails in the same way when the problem is present.
+
+### PC problem: Gradle memory
+
+`android/gradle.properties` asked for `-Xmx8G` with a 4 GB metaspace. A PC with
+8 GB of RAM cannot give that. The value is now `-Xmx1536m` with a 512 MB
+metaspace, which is enough for this project.
+
 ---
 
 ## What Has Been Built
