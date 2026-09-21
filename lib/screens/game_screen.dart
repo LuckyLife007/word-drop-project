@@ -102,6 +102,83 @@ const double kCardHeight = 88.0;
 /// the screen at one time (REDESIGN.md D12, D17, D18).
 const int kMaxCards = 6;
 
+/// How long a new card takes to fade and scale in, in milliseconds.
+/// The countdown starts when this animation ends (REDESIGN.md D26).
+const int kCardEntranceMs = 300;
+
+/// How long the red "failed" flash lasts, in milliseconds.
+///
+/// The flash happens INSIDE the card time, at the end (D13). So the player can
+/// answer for `cardTime - kFailFlashMs`, and the card leaves the screen exactly
+/// at `cardTime` (D15).
+const int kFailFlashMs = 600;
+
+/// The card turns amber when this many seconds are left (REDESIGN.md D25).
+const double kWarningSeconds = 5.0;
+
+// ============================================================================
+// TIMED CARD DATA CLASS  (REDESIGN.md S3)
+// ============================================================================
+
+/// One word card on the grid.
+///
+/// Each card carries its own word data, its grid position, and the two
+/// AnimationControllers that drive it:
+///
+///   [entrance] — 0.0 to 1.0 over kCardEntranceMs. Fades and scales the card in.
+///   [timer]    — 0.0 to 1.0 over the level's cardTime. Drives the seconds
+///                number, the bar, the amber warning and the red flash.
+///
+/// WHY AN AnimationController FOR THE TIMER?
+/// A controller gives us three things a plain Timer does not:
+///   1. A value between 0.0 and 1.0 that the widget can read on every frame.
+///   2. `stop()` and `forward()`, which pause and resume from the same value
+///      (REDESIGN.md D22 and D32).
+///   3. One status listener that fires when the card time ends.
+class TimedCard {
+  /// Unique id for this card instance. Used to find and remove it.
+  final String id;
+
+  /// The hidden letter pattern shown on the card, for example "B-N-N-".
+  final String hint;
+
+  /// The clue shown under the hint, for example "Yellow curved fruit".
+  final String clue;
+
+  /// The full answer, for example "BANANA". Stage 4.4 matches against this.
+  final String answer;
+
+  /// Which grid position holds this card, 0 to 5 in reading order
+  /// (REDESIGN.md S4). A card keeps its position until it is removed.
+  final int gridIndex;
+
+  /// Fades and scales the card in over kCardEntranceMs.
+  final AnimationController entrance;
+
+  /// Counts the card time down. Value 0.0 = full time left, 1.0 = time over.
+  final AnimationController timer;
+
+  /// True once the player has lost a life for this card.
+  /// It stops the red flash from taking a second life on the next frame.
+  bool lifeLost = false;
+
+  TimedCard({
+    required this.id,
+    required this.hint,
+    required this.clue,
+    required this.answer,
+    required this.gridIndex,
+    required this.entrance,
+    required this.timer,
+  });
+
+  /// Disposes both controllers. Call this when the card leaves the screen.
+  void dispose() {
+    entrance.dispose();
+    timer.dispose();
+  }
+}
+
 // ============================================================================
 // GAME SCREEN WIDGET
 // ============================================================================
@@ -184,8 +261,19 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   int _wordsCompleted = 0;
 
   /// Elapsed time displayed in the header (e.g. "1:42").
-  /// Starts at "0:00" and updates every second once the first word spawns.
+  /// Starts at "0:00" and updates every second once the first card appears.
   String _timerDisplay = '0:00';
+
+  // ==========================================================================
+  // CARDS  (Stage 4.2 — REDESIGN.md S3, S4)
+  // ==========================================================================
+
+  /// Every card on the grid right now. Never more than kMaxCards (D12, D18).
+  /// The list order does not matter: each card knows its own gridIndex.
+  final List<TimedCard> _cards = [];
+
+  /// Counter used to build a unique id for each card.
+  int _cardSerial = 0;
 
   // ==========================================================================
   // TIMER
@@ -302,19 +390,20 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       duration: const Duration(milliseconds: 500),
     );
 
-    // STAGE 4.1 — no timers yet.
+    // STAGE 4.2 — put ONE card on the grid.
     //
-    // The old design started a spawn timer here, which dropped words down the
-    // screen. The redesign replaces that with word cards in a fixed grid, and
-    // each card holds its own countdown (REDESIGN.md D1).
+    // WHY WAIT FOR THE FIRST FRAME AND 400ms?
+    // The keyboard opens by itself (autofocus) and it takes about 300ms to
+    // slide up. The grid changes height while that happens. We wait so the
+    // card appears on a screen that has stopped moving.
     //
-    // The card engine arrives in the next stages:
-    //   Stage 4.2 — one card with a working countdown  (REDESIGN.md S3)
-    //   Stage 4.3 — the automatic interval and the "+" button (S5)
-    //   Stage 4.6 — the "3, 2, 1, Go" countdown at start and resume (S8)
-    //
-    // This stage only proves the layout: 6 grid positions, the scroll view,
-    // the header and the input row.
+    // Stage 4.3 replaces this single card with the automatic interval and the
+    // "+" button. Stage 4.6 puts the "3, 2, 1, Go" countdown before it.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Future.delayed(const Duration(milliseconds: 400), () {
+        if (mounted) _spawnCard();
+      });
+    });
   }
 
   @override
@@ -326,11 +415,15 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     // Cancel the new-card timer so no card is created after disposal.
     // Without this, the timer could fire and try to call setState() or create
     // AnimationControllers after the State has been torn down.
-    // (Stage 4.3 starts this timer. Stage 4.1 never starts it.)
+    // (Stage 4.3 starts this timer. Stage 4.2 never starts it.)
     _newCardTimer?.cancel();
 
-    // STAGE 4.2 will add: dispose the AnimationController of every card in
-    // _cards, because each card owns one countdown controller.
+    // Dispose the 2 controllers of every card still on the grid.
+    // A controller that is not disposed keeps a ticker alive and leaks memory.
+    for (final card in _cards) {
+      card.dispose();
+    }
+    _cards.clear();
 
     _scoreHighlightController.dispose();
     _overlayController.dispose();
@@ -348,9 +441,161 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   /// Stops all running timers, freezes all falling animations, then triggers
   /// the Game Over overlay (Stage 6) which slides in from the centre of the
   /// screen and offers "Try Again", "Level Select", and "Main Menu" buttons.
-  /// The ignore is temporary: stage 4.2 calls this when a card fails and the
-  /// lives reach 0.
-  // ignore: unused_element
+  // ==========================================================================
+  // CARD ENGINE  (Stage 4.2 — REDESIGN.md S3, S4, S5)
+  // ==========================================================================
+
+  /// Returns the free grid position with the lowest number, or null when the
+  /// grid is full (REDESIGN.md S4).
+  int? _firstFreeIndex() {
+    for (int i = 0; i < kMaxCards; i++) {
+      final bool taken = _cards.any((c) => c.gridIndex == i);
+      if (!taken) return i;
+    }
+    return null;
+  }
+
+  /// Returns the card in a grid position, or null when the position is empty.
+  TimedCard? _cardAt(int index) {
+    for (final card in _cards) {
+      if (card.gridIndex == index) return card;
+    }
+    return null;
+  }
+
+  /// Puts one new card on the grid.
+  ///
+  /// STEPS:
+  ///   1. Stop if the game is over, won or paused, or if the grid is full.
+  ///   2. Ask GameManager for the next word. It picks the right word length
+  ///      for this position in the level, and it never gives a word that is
+  ///      already on the screen.
+  ///   3. Build the two controllers and add the card to the grid.
+  ///   4. Play the entrance, then start the countdown (D26).
+  ///
+  /// Stage 4.3 calls this from the automatic interval and from the "+" button.
+  void _spawnCard() {
+    if (_isGameOver || _isLevelComplete || _isPaused) return;
+
+    final int? slot = _firstFreeIndex();
+    if (slot == null) return; // grid full — D16 makes the next card wait
+
+    // The answers already on the screen, so the same word cannot appear twice.
+    final List<String> activeWords = _cards.map((c) => c.answer).toList();
+
+    final WordWithCombination? next =
+        GameManager().getNextWord(activeWords: activeWords);
+    if (next == null) return; // word bank empty — should never happen
+
+    final entrance = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: kCardEntranceMs),
+    );
+
+    final timer = AnimationController(
+      vsync: this,
+      duration: widget.level.cardTimeDuration,
+    );
+
+    final card = TimedCard(
+      id: 'card_${_cardSerial++}',
+      hint: next.hint,
+      clue: next.clue,
+      answer: next.word.word,
+      gridIndex: slot,
+      entrance: entrance,
+      timer: timer,
+    );
+
+    // WATCH THE COUNTDOWN.
+    // The listener runs on every frame while the timer moves. It only acts at
+    // the moment the red flash begins: the player loses 1 life there (D15).
+    timer.addListener(() {
+      if (!mounted || card.lifeLost) return;
+      if (_remainingMs(card) <= kFailFlashMs) {
+        _onCardFailed(card);
+      }
+    });
+
+    // WATCH THE END.
+    // The card leaves the screen exactly at cardTime (D15).
+    timer.addStatusListener((status) {
+      if (status == AnimationStatus.completed && mounted) {
+        _removeCard(card);
+      }
+    });
+
+    setState(() => _cards.add(card));
+
+    // Start the clock on the first card of the level.
+    if (!_stopwatch.isRunning) _startTimer();
+
+    // The countdown starts only when the card is fully visible (D26).
+    entrance.forward().whenComplete(() {
+      if (mounted && !_isPaused && !_isGameOver && !_isLevelComplete) {
+        timer.forward();
+      }
+    });
+  }
+
+  /// Milliseconds left on a card's countdown.
+  ///
+  /// The controller value runs 0.0 to 1.0 over the level's card time, so the
+  /// time left is `cardTime × (1 − value)`.
+  int _remainingMs(TimedCard card) {
+    final int total = widget.level.cardTime;
+    return (total * (1.0 - card.timer.value)).round();
+  }
+
+  /// Called once per card, at the moment its red flash starts (D15).
+  ///
+  /// The player loses 1 life here, not when the card disappears. The card
+  /// then shows red for the last 600ms and cannot be answered any more.
+  void _onCardFailed(TimedCard card) {
+    if (card.lifeLost) return;
+    card.lifeLost = true;
+
+    setState(() {
+      if (_lives > 0) _lives--;
+    });
+
+    if (_lives <= 0) _handleGameOver();
+  }
+
+  /// Removes a card from the grid and frees its position.
+  void _removeCard(TimedCard card) {
+    setState(() => _cards.remove(card));
+    card.dispose();
+  }
+
+  /// Stops the countdown of every card, and the entrance animations too.
+  /// Used by pause, game over and level complete (REDESIGN.md D22, D32).
+  void _freezeAllCards() {
+    for (final card in _cards) {
+      card.timer.stop();
+      card.entrance.stop();
+    }
+  }
+
+  /// Starts every card's countdown again from the same value (D22).
+  ///
+  /// A card that was still in its entrance animation finishes the entrance
+  /// first, and only then starts its countdown, exactly as D26 requires.
+  void _resumeAllCards() {
+    for (final card in _cards) {
+      if (card.entrance.isCompleted) {
+        card.timer.forward();
+      } else {
+        final TimedCard c = card;
+        c.entrance.forward().whenComplete(() {
+          if (mounted && !_isPaused && !_isGameOver && !_isLevelComplete) {
+            c.timer.forward();
+          }
+        });
+      }
+    }
+  }
+
   void _handleGameOver() {
     // Don't trigger game over if the level was already completed.
     // Edge case: a word could finish falling at the exact frame that the
@@ -367,8 +612,8 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     _timerUpdateTimer?.cancel();
     _stopwatch.stop();
 
-    // STAGE 4.2 will add: stop the countdown controller of every card in
-    // _cards, so the grid freezes behind the overlay (REDESIGN.md D22).
+    // Freeze every card behind the overlay (REDESIGN.md D22).
+    _freezeAllCards();
 
     // Rebuild to show the overlay (which is gated on _isGameOver in build()),
     // then animate the card from scale 0â†’1 over 500ms (Section 6.4).
@@ -405,8 +650,8 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     _timerUpdateTimer?.cancel();
     _stopwatch.stop();
 
-    // STAGE 4.2 will add: stop the countdown controller of every card in
-    // _cards, so the grid freezes behind the overlay (REDESIGN.md D22).
+    // Freeze every card behind the overlay (REDESIGN.md D22).
+    _freezeAllCards();
 
     // Capture best-time info BEFORE saving so we know if this run set a
     // new record. ProgressManager.saveBestTime() updates _bestTimes in memory
@@ -498,8 +743,8 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     _timerUpdateTimer?.cancel();
     _stopwatch.stop();
 
-    // STAGE 4.2 will add: stop the countdown controller of every card, so the
-    // whole grid freezes. A pause costs the player nothing (REDESIGN.md D32).
+    // Freeze every card. A pause costs the player nothing (D22, D32).
+    _freezeAllCards();
 
     // Dismiss the keyboard — the player can't type while paused.
     _inputFocusNode.unfocus();
@@ -523,8 +768,8 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
     _isPaused = false;
 
-    // STAGE 4.2 will add: start the countdown controller of every card again,
-    // from the same value.
+    // Start every card's countdown again, from the same value (D22).
+    _resumeAllCards();
     // STAGE 4.6 will add: run the "3, 2, 1, Go" countdown BEFORE the timers
     // start again. This happens at every resume (REDESIGN.md D30).
 
@@ -1488,9 +1733,9 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
               padding: EdgeInsets.only(bottom: row < 2 ? kGridGap : 0),
               child: Row(
                 children: [
-                  Expanded(child: _buildEmptySlot(row * 2)),
+                  Expanded(child: _buildGridPosition(row * 2)),
                   const SizedBox(width: kGridGap),
-                  Expanded(child: _buildEmptySlot(row * 2 + 1)),
+                  Expanded(child: _buildGridPosition(row * 2 + 1)),
                 ],
               ),
             ),
@@ -1499,34 +1744,192 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     );
   }
 
-  /// Builds one empty grid position.
-  ///
-  /// This is a placeholder for Stage 4.1 only. It shows the position number
-  /// so we can check the grid order (S4) on a real device. Stage 4.2 replaces
-  /// it with the real card widget.
+  /// Builds one grid position: the card in it, or an empty box.
   ///
   /// [index] — the position number, 0 to 5.
-  Widget _buildEmptySlot(int index) {
+  Widget _buildGridPosition(int index) {
+    final TimedCard? card = _cardAt(index);
+    if (card == null) return _buildEmptySlot();
+    return _buildTimedCard(card);
+  }
+
+  /// Builds an empty grid position: a faint box that holds the space open.
+  ///
+  /// The empty box keeps the grid steady. A position that a card left stays
+  /// where it is, and the other cards never move (REDESIGN.md D17).
+  Widget _buildEmptySlot() {
     return Container(
       height: kCardHeight,
       decoration: BoxDecoration(
-        // A faint box: visible enough to measure, quiet enough to ignore.
         color: Colors.white.withValues(alpha: 0.06),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: Colors.white.withValues(alpha: 0.15),
+          color: Colors.white.withValues(alpha: 0.12),
           width: 1.0,
         ),
       ),
-      child: Center(
-        child: Text(
-          '$index',
-          style: TextStyle(
-            fontSize: 13,
-            color: Colors.white.withValues(alpha: 0.35),
+    );
+  }
+
+  // ==========================================================================
+  // THE WORD CARD  (Stage 4.2 — REDESIGN.md S3)
+  // ==========================================================================
+
+  /// Builds one word card with its live countdown.
+  ///
+  /// WHAT THE PLAYER SEES (S3):
+  ///   - Top row: the hint pattern on the left, the seconds number on the right.
+  ///   - Middle: the clue, italic, up to 3 lines.
+  ///   - Bottom edge: a 4px bar that gets shorter as the time runs out.
+  ///
+  /// COLOURS:
+  ///   - Normal: the brand blue-purple #667eea.
+  ///   - Last 5.0 seconds: amber #FFA000 (D25).
+  ///   - Last 0.6 seconds: red. The card body turns red too, the number shows
+  ///     0, and the player has already lost the life (D15).
+  ///
+  /// WHY AnimatedBuilder?
+  /// It rebuilds only this card on every animation frame. The rest of the
+  /// screen, including the other cards, is left alone.
+  Widget _buildTimedCard(TimedCard card) {
+    return AnimatedBuilder(
+      // Listen to both controllers: the entrance and the countdown.
+      animation: Listenable.merge([card.entrance, card.timer]),
+      builder: (context, _) {
+        final int remainingMs = _remainingMs(card);
+        final bool isFailed = remainingMs <= kFailFlashMs;
+        final bool isWarning =
+            !isFailed && remainingMs <= (kWarningSeconds * 1000);
+
+        // The seconds number. It never shows a negative value, and it shows 0
+        // during the red flash (S11 point 4).
+        final int secondsLeft = isFailed
+            ? 0
+            : ((remainingMs - kFailFlashMs) / 1000).ceil().clamp(0, 9999);
+
+        // The timer colour follows the state.
+        final Color timerColor = isFailed
+            ? const Color(0xFFD32F2F) // red
+            : isWarning
+                ? const Color(0xFFFFA000) // amber
+                : const Color(0xFF667eea); // brand blue-purple
+
+        // The card body turns red during the flash so the failure is obvious
+        // even when the player is looking at another card.
+        final Color cardColor = isFailed
+            ? const Color(0xFFFFCDD2) // light red
+            : Colors.white.withValues(alpha: 0.95);
+
+        // How much of the bar is left, 1.0 at the start and 0.0 at the end.
+        final double barFraction = (1.0 - card.timer.value).clamp(0.0, 1.0);
+
+        // ENTRANCE: fade 0→1 and scale 0.95→1.0 over kCardEntranceMs (D26).
+        final double entranceValue = card.entrance.value;
+
+        return Opacity(
+          opacity: entranceValue,
+          child: Transform.scale(
+            scale: 0.95 + (0.05 * entranceValue),
+            child: Container(
+              height: kCardHeight,
+              decoration: BoxDecoration(
+                color: cardColor,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: isFailed
+                      ? const Color(0xFFD32F2F)
+                      : Colors.white.withValues(alpha: 0.35),
+                  width: isFailed ? 2.0 : 1.0,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.18),
+                    blurRadius: 6,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              // clipBehavior keeps the timer bar inside the rounded corners.
+              clipBehavior: Clip.antiAlias,
+              child: Column(
+                children: [
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(8, 6, 8, 4),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          // ---- HINT + SECONDS ----
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  card.hint,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontSize: 17,
+                                    fontWeight: FontWeight.bold,
+                                    fontFamily: 'monospace',
+                                    letterSpacing: 1.5,
+                                    color: Color(0xFF333333),
+                                    height: 1.1,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                '$secondsLeft',
+                                style: TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.bold,
+                                  color: timerColor,
+                                  height: 1.1,
+                                ),
+                              ),
+                            ],
+                          ),
+
+                          const SizedBox(height: 3),
+
+                          // ---- CLUE ----
+                          Expanded(
+                            child: Text(
+                              card.clue,
+                              maxLines: 3,
+                              overflow: TextOverflow.ellipsis,
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontStyle: FontStyle.italic,
+                                color: Colors.grey.shade700,
+                                height: 1.2,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                  // ---- TIMER BAR (bottom edge) ----
+                  SizedBox(
+                    height: 4,
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: FractionallySizedBox(
+                        widthFactor: barFraction,
+                        child: Container(color: timerColor),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 

@@ -7,10 +7,10 @@ Plan steps 1 to 3 are done, and **stage 4.1 (static layout) is built and tested
 on a real phone**. Next: open question I1 (make the sections shorter), then
 stage 4.2.
 
-> **Resume here (next session):** Plan steps 1 to 3, **stage 4.1** and the
-> height work of **Group I** are done and tested on a real phone. All 6 card
-> positions fit with the keyboard open. **Next: stage 4.2** — one card with a
-> real countdown (S3).
+> **Resume here (next session):** Plan steps 1 to 3, **stages 4.1 and 4.2**,
+> and the height work of **Group I** are done and tested on a real phone.
+> **Next: stage 4.3** — the automatic new-card interval, the waiting card when
+> the grid is full, and the "+" button (S5).
 
 ---
 
@@ -580,7 +580,7 @@ when you see the build.
    | Stage | Content | Specification |
    |-------|---------|---------------|
    | 4.1 | ~~Static layout: header, 6 empty grid positions in a scroll view, input row with the `[+]` and Pause buttons. No timers.~~ **Done 2026-09-20.** The falling-word engine was removed in this stage, not in 4.7, so the file holds no dead code between stages. **Test T1 is open: measure the grid on a real phone.** | S2, S4 |
-   | 4.2 | One card with a working countdown: number, bar, amber at 5.0s, red flash, life loss, removal. | S3 |
+   | 4.2 | ~~One card with a working countdown: number, bar, amber at 5.0s, red flash, life loss, removal.~~ **Done and tested on the phone 2026-09-21.** All 4 states confirmed on a Level 1 card (30s): blue and counting, amber at 5.0s, red card with `0` at 0.6s with 1 life lost, then removal at exactly 30s and the position became free. | S3 |
    | 4.3 | Automatic new cards, the waiting card, the limit of 6, and the `[+]` button. | S5 |
    | 4.4 | Input matching, green flash, score, and the end of a level. | S6, S7 |
    | 4.5 | Manual scrolling and the 2 blinking arrows. | S2 |
