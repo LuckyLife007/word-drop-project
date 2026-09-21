@@ -219,7 +219,8 @@ class GameScreen extends StatefulWidget {
 /// falling word, plus future controllers for flash/pulse effects.
 /// SingleTickerProviderStateMixin crashes if you try to create a second
 /// controller with it. TickerProviderStateMixin supports unlimited controllers.
-class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
+class _GameScreenState extends State<GameScreen>
+    with TickerProviderStateMixin, WidgetsBindingObserver {
   // ==========================================================================
   // GAME STATE
   // ==========================================================================
@@ -298,6 +299,21 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   /// Drives the blinking of the 2 arrows (REDESIGN.md D28).
   /// It repeats up and down over 1000ms for as long as the screen lives.
   late AnimationController _arrowBlink;
+
+  /// True while the "3, 2, 1, Go" countdown is on the screen (D30).
+  ///
+  /// During the countdown every timer stays stopped, the input is ignored and
+  /// the "+" button is disabled. The keyboard stays open (D21).
+  bool _isCountingDown = false;
+
+  /// What the countdown shows right now: "3", "2", "1" or "GO!".
+  String _countdownLabel = '';
+
+  /// True once the keyboard has been open at least once on this screen.
+  ///
+  /// [didChangeMetrics] uses it, so that the level start — where the keyboard
+  /// height is still 0 — does not look like the player closing the keyboard.
+  bool _keyboardWasOpen = false;
 
   /// True while one card waits for a free grid position (REDESIGN.md D16).
   ///
@@ -421,6 +437,17 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       duration: const Duration(milliseconds: 500),
     );
 
+    // Watch the app lifecycle, so the game pauses when the player switches to
+    // another app or turns the screen off (REDESIGN.md D22).
+    WidgetsBinding.instance.addObserver(this);
+
+    // Watch the keyboard focus (REDESIGN.md D21).
+    //
+    // The keyboard must stay open for the whole game. If it closes — the Back
+    // gesture, the phone's "hide keyboard" key, or anything else — the game
+    // pauses instead of running on without an input field.
+    _inputFocusNode.addListener(_onFocusChanged);
+
     // The 2 arrows blink with a 1000ms cycle for as long as cards are outside
     // the visible area (REDESIGN.md D28). The controller runs all the time;
     // the arrows themselves only appear when cards are hidden.
@@ -435,18 +462,15 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       if (mounted) setState(() {});
     });
 
-    // STAGE 4.3 — start the level: one card at once, then one every
-    // newCardDelay (REDESIGN.md S5, D11).
+    // START THE LEVEL: "3, 2, 1, Go", then the first card and the interval.
     //
     // WHY WAIT FOR THE FIRST FRAME AND 400ms?
     // The keyboard opens by itself (autofocus) and it takes about 300ms to
     // slide up. The grid changes height while that happens. We wait so the
-    // first card appears on a screen that has stopped moving.
-    //
-    // Stage 4.6 puts the "3, 2, 1, Go" countdown in front of this (D30).
+    // countdown and the first card appear on a screen that has stopped moving.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       Future.delayed(const Duration(milliseconds: 400), () {
-        if (mounted) _startNewCardTimer(spawnNow: true);
+        if (mounted) _startLevel();
       });
     });
   }
@@ -470,6 +494,10 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     }
     _cards.clear();
 
+    // Stop watching the app lifecycle and the keyboard focus (stage 4.6).
+    WidgetsBinding.instance.removeObserver(this);
+    _inputFocusNode.removeListener(_onFocusChanged);
+
     _arrowBlink.dispose();
     _gridScroll.dispose();
 
@@ -489,6 +517,109 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   /// Stops all running timers, freezes all falling animations, then triggers
   /// the Game Over overlay (Stage 6) which slides in from the centre of the
   /// screen and offers "Try Again", "Level Select", and "Main Menu" buttons.
+  // ==========================================================================
+  // PAUSE SOURCES AND THE COUNTDOWN  (Stage 4.6 — REDESIGN.md S8)
+  // ==========================================================================
+
+  /// Called by Flutter when the app moves between foreground and background.
+  ///
+  /// The game pauses as soon as the app stops being the active one (D22):
+  /// the player switches app, takes a call, or turns the screen off. Every
+  /// timer stops together, so no card can fail while the player cannot see it.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) {
+      _pauseGame();
+    }
+  }
+
+  /// Called when the input field gains or loses the keyboard focus.
+  ///
+  /// This catches the cases where Flutter itself moves the focus away.
+  /// It does NOT catch the Back gesture: Android closes the keyboard, but
+  /// Flutter keeps the focus on the field. [didChangeMetrics] handles that.
+  void _onFocusChanged() {
+    if (!mounted) return;
+    if (!_inputFocusNode.hasFocus) {
+      _pauseGame();
+    }
+  }
+
+  /// Called by Flutter when the screen metrics change, which includes the
+  /// keyboard opening and closing.
+  ///
+  /// THE KEYBOARD IS THE SIGNAL (REDESIGN.md D21).
+  /// The keyboard must stay open for the whole game. When the player closes
+  /// it — with the Back gesture, or the "hide keyboard" key — the game pauses.
+  ///
+  /// WHY NOT THE FOCUS?
+  /// Android closes the keyboard on Back before the key reaches the app, and
+  /// Flutter keeps the focus on the field. So the focus never changes, and
+  /// only the keyboard height tells us what happened.
+  ///
+  /// [_keyboardWasOpen] stops a pause at level start, when the keyboard has
+  /// not opened yet and the height is still 0.
+  @override
+  void didChangeMetrics() {
+    if (!mounted) return;
+
+    final double keyboardHeight = View.of(context).viewInsets.bottom;
+
+    if (keyboardHeight > 0) {
+      _keyboardWasOpen = true;
+      return;
+    }
+
+    if (_keyboardWasOpen) {
+      _keyboardWasOpen = false;
+      _pauseGame();
+    }
+  }
+
+  /// Runs the "3, 2, 1, Go" countdown (REDESIGN.md D30).
+  ///
+  /// "3", "2" and "1" each show for 800ms, and "GO!" for 600ms: 3.0s in total.
+  /// Every timer stays stopped until the countdown ends, and the game ignores
+  /// the input. The keyboard stays open (D21).
+  ///
+  /// The countdown stops early if the player pauses, or if the game ends
+  /// during it. The caller checks the state before it starts any timer.
+  Future<void> _runCountdown() async {
+    setState(() {
+      _isCountingDown = true;
+      _countdownLabel = '3';
+    });
+
+    for (final String label in ['3', '2', '1', 'GO!']) {
+      if (!mounted) return;
+
+      setState(() => _countdownLabel = label);
+
+      await Future.delayed(Duration(milliseconds: label == 'GO!' ? 600 : 800));
+
+      // Stop the countdown if the state changed while we waited.
+      if (!mounted) return;
+      if (_isPaused || _isGameOver || _isLevelComplete) {
+        setState(() => _isCountingDown = false);
+        return;
+      }
+    }
+
+    setState(() {
+      _isCountingDown = false;
+      _countdownLabel = '';
+    });
+  }
+
+  /// Starts the level: the countdown, then the first card and the interval.
+  Future<void> _startLevel() async {
+    await _runCountdown();
+
+    if (!mounted || _isPaused || _isGameOver || _isLevelComplete) return;
+
+    _startNewCardTimer(spawnNow: true);
+  }
+
   // ==========================================================================
   // CARD ENGINE  (Stage 4.2 — REDESIGN.md S3, S4, S5)
   // ==========================================================================
@@ -834,17 +965,20 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   // ==========================================================================
 
   /// Called when the player taps the Pause button.
+  void _onPausePressed() => _pauseGame();
+
+  /// Pauses the game. This is the ONE place that pauses, and it serves all
+  /// three sources (REDESIGN.md S8, D21, D22):
+  ///   1. the Pause button;
+  ///   2. the Back gesture, or anything else that closes the keyboard;
+  ///   3. the app going to the background.
   ///
-  /// Freezes all active falling word animations, stops the spawn timer and
-  /// stopwatch, then shows the Pause overlay card with current level stats.
-  ///
-  /// Per documentation Section 5.6 / 6.6:
-  ///   - All timers and animations pause/freeze on tapping pause
-  ///   - Overlay shows: level name, score, time spent, lives remaining
-  ///   - "Resume Game" restores everything; "End Game" exits without saving
-  void _onPausePressed() {
-    // Don't allow pausing after the game has already ended or been won.
-    if (_isGameOver || _isLevelComplete) return;
+  /// It stops every timer, freezes every card and shows the pause overlay.
+  /// A pause costs the player nothing: no life, no points, no clock time
+  /// (D32). The resume runs the "3, 2, 1, Go" countdown (D30).
+  void _pauseGame() {
+    // Do nothing if the game is already paused, or has ended or been won.
+    if (_isPaused || _isGameOver || _isLevelComplete) return;
 
     _isPaused = true;
 
@@ -872,27 +1006,34 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
   /// Called when the player taps "Resume Game" in the Pause overlay.
   ///
-  /// Dismisses the overlay, restores all frozen falling word animations,
-  /// and restarts both the spawn timer (without an immediate extra spawn —
-  /// existing words are mid-fall) and the stopwatch display timer.
-  void _onResume() {
+  /// ORDER (REDESIGN.md D30):
+  ///   1. Hide the pause overlay and open the keyboard again.
+  ///   2. Run "3, 2, 1, Go" with every timer still stopped.
+  ///   3. Only then start the card countdowns, the clock and the interval.
+  Future<void> _onResume() async {
     // Reset the pause controller to 0 so it's ready for the next pause cycle.
     // (If we didn't reset, the next forward() call would be a no-op because
     // the controller would already be at its maximum value of 1.0.)
     _pauseOverlayController.reset();
 
-    _isPaused = false;
+    setState(() => _isPaused = false); // overlay leaves the Stack
+
+    // Open the keyboard again BEFORE the countdown, so the player can type the
+    // moment "GO!" disappears, and so the layout does not move during play.
+    _inputFocusNode.requestFocus();
+
+    // The countdown runs with everything still frozen.
+    await _runCountdown();
+
+    // The player may have paused again, or left, while the countdown ran.
+    if (!mounted || _isPaused || _isGameOver || _isLevelComplete) return;
 
     // Start every card's countdown again, from the same value (D22).
     _resumeAllCards();
-    // STAGE 4.6 will add: run the "3, 2, 1, Go" countdown BEFORE the timers
-    // start again. This happens at every resume (REDESIGN.md D30).
 
     // Restart the clock from where it stopped.
     // Dart's Stopwatch.start() on a stopped (not reset) watch resumes from
     // the existing elapsed time — so the display updates continuously.
-    // _startTimer() also creates a fresh Timer.periodic for the display update
-    // (the old one was cancelled by _onPausePressed).
     _startTimer();
 
     // A card that was waiting during the pause (D16) appears now, because a
@@ -905,11 +1046,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     // Start the new-card interval again, counting from zero, and WITHOUT an
     // extra card: the cards from before the pause are still on the grid.
     _startNewCardTimer();
-
-    // Re-focus the input field so the player can type immediately on resume.
-    _inputFocusNode.requestFocus();
-
-    setState(() {}); // _isPaused is now false → overlay removed from Stack
   }
 
   /// Called when the player taps "End Game" in the Pause overlay.
@@ -935,8 +1071,9 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   ///   - A card in the Failed (red) or Matched (green) state is skipped.
   ///   - A wrong word gives no feedback and no penalty (D10/E2, D27).
   void _onInputChanged(String value) {
-    // No matching after game over, level complete, or while paused.
-    if (_isGameOver || _isLevelComplete || _isPaused) return;
+    // No matching after game over, level complete, while paused, or during
+    // the "3, 2, 1, Go" countdown (D30).
+    if (_isGameOver || _isLevelComplete || _isPaused || _isCountingDown) return;
 
     // Normalise: uppercase and remove outside spaces. The field already forces
     // uppercase, but we normalise again so the comparison is reliable.
@@ -1025,6 +1162,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       !_isPaused &&
       !_isGameOver &&
       !_isLevelComplete &&
+      !_isCountingDown &&
       !_cardWaiting &&
       _firstFreeIndex() != null;
 
@@ -1676,6 +1814,23 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) {
+    // PopScope catches the system Back gesture (REDESIGN.md D21).
+    //
+    // During play, Back PAUSES the game instead of leaving the screen. The
+    // player then chooses "Resume Game" or "End Game" in the overlay, so a
+    // run is never lost by one careless swipe.
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (bool didPop, Object? result) {
+        if (didPop || !mounted) return;
+        if (_isPaused || _isGameOver || _isLevelComplete) return;
+        _pauseGame();
+      },
+      child: _buildScaffold(context),
+    );
+  }
+
+  Widget _buildScaffold(BuildContext context) {
     return Scaffold(
       // resizeToAvoidBottomInset: true (default) — Flutter shrinks the scaffold
       // when the keyboard appears, so the input row stays visible. The card
@@ -1739,6 +1894,12 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
               // All falling word animations and timers are frozen while shown.
               // "Resume Game" restores the game; "End Game" exits without saving.
               if (_isPaused) Positioned.fill(child: _buildPauseOverlay()),
+
+              // "3, 2, 1, GO!" COUNTDOWN (REDESIGN.md D30)
+              // It runs at the start of a level and at EVERY resume, whatever
+              // caused the pause. Every timer stays stopped until it ends.
+              if (_isCountingDown)
+                Positioned.fill(child: _buildCountdownOverlay()),
             ],
           ),
         ),
@@ -1999,6 +2160,60 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     final TimedCard? card = _cardAt(index);
     if (card == null) return _buildEmptySlot();
     return _buildTimedCard(card);
+  }
+
+  // ==========================================================================
+  // COUNTDOWN OVERLAY  (Stage 4.6 — REDESIGN.md D30)
+  // ==========================================================================
+
+  /// The "3, 2, 1, GO!" screen.
+  ///
+  /// It covers the grid with a dark layer and shows one big number. The
+  /// keyboard stays open behind it (D21), but the game ignores the input.
+  ///
+  /// AnimatedSwitcher gives each number a short grow-and-fade entrance, so
+  /// the player sees the change even without reading the number.
+  Widget _buildCountdownOverlay() {
+    final bool isGo = _countdownLabel == 'GO!';
+
+    return Container(
+      color: Colors.black.withValues(alpha: 0.55),
+      child: Center(
+        child: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 250),
+          transitionBuilder: (Widget child, Animation<double> animation) {
+            return FadeTransition(
+              opacity: animation,
+              child: ScaleTransition(
+                scale: Tween<double>(begin: 0.7, end: 1.0).animate(
+                  CurvedAnimation(parent: animation, curve: Curves.easeOut),
+                ),
+                child: child,
+              ),
+            );
+          },
+          child: Text(
+            _countdownLabel,
+            // The key tells AnimatedSwitcher that this is a NEW child, so it
+            // plays the entrance again for every number.
+            key: ValueKey<String>(_countdownLabel),
+            style: TextStyle(
+              fontSize: isGo ? 56 : 88,
+              fontWeight: FontWeight.w900,
+              color: isGo ? const Color(0xFF4CAF50) : Colors.white,
+              letterSpacing: 2.0,
+              shadows: const [
+                Shadow(
+                  blurRadius: 14.0,
+                  color: Color(0x99000000),
+                  offset: Offset(0, 3),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   // ==========================================================================

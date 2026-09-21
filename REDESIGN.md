@@ -7,10 +7,10 @@ Plan steps 1 to 3 are done, and **stage 4.1 (static layout) is built and tested
 on a real phone**. Next: open question I1 (make the sections shorter), then
 stage 4.2.
 
-> **Resume here (next session):** Plan steps 1 to 3, **stages 4.1 to 4.5**,
+> **Resume here (next session):** Plan steps 1 to 3, **stages 4.1 to 4.6**,
 > and the height work of **Group I** are done and tested on a real phone.
-> **Next: stage 4.6** — pause from all 3 sources, and the "3, 2, 1, Go"
-> countdown at the start of a level and at every resume (S8, D21, D22, D30).
+> **Next: stage 4.7** — check the 3 overlays, and confirm the 5 points in S11.
+> After that, Plan step 5 (check every bug again).
 
 ---
 
@@ -478,6 +478,20 @@ While paused:
 - The pause overlay covers the grid.
 - A pause costs nothing: no life, no points, no clock time (D32).
 
+**How the code sees each source (added 2026-09-21, from the build):**
+
+| Source | What the code listens to |
+|--------|--------------------------|
+| Pause button | `onPressed` → `_pauseGame()` |
+| Back gesture | `PopScope(canPop: false)` stops the screen from closing, **and** `didChangeMetrics()` sees the keyboard height fall to 0 |
+| App in the background | `didChangeAppLifecycleState()` — any state that is not `resumed` |
+
+**Important detail:** the Back gesture does **not** change the focus. Android
+closes the keyboard before the key reaches the app, and Flutter keeps the focus
+on the text field. So a focus listener never fires. **The keyboard height is
+the signal**, read in `didChangeMetrics()`. A flag (`_keyboardWasOpen`) stops
+a false pause at the level start, where the height is still 0.
+
 Resume always runs the **"3, 2, 1, Go"** countdown (D30):
 
 - "3", "2" and "1" each show for 800ms. "Go" shows for 600ms. Total: 3.0s.
@@ -584,7 +598,7 @@ when you see the build.
    | 4.3 | ~~Automatic new cards, the waiting card, the limit of 6, and the `[+]` button.~~ **Done and tested on the phone 2026-09-21.** Cards appeared every 5.0s on Level 1; `[+]` added one at once and restarted the interval from zero; the grid never went above 6; `[+]` showed as disabled while the grid was full; a freed position was refilled at once by the waiting card. | S5 |
    | 4.4 | ~~Input matching, green flash, score, and the end of a level.~~ **Done 2026-09-21.** Tested on the phone: a wrong word gave no feedback and no penalty; a word that was not on the grid matched nothing; the correct word turned the card green with a green border, gave +5 with the gold score highlight, cleared the field and kept the keyboard; the card left after the 500ms flash and the position was refilled. **The end of a level is also tested: Z3 played Level 1 to 100/100 on 2026-09-21.** The Level Complete overlay showed Score 100/100, Time 1:44 and "New Record!", with Continue, Replay Level and Level Select. | S6, S7 |
    | 4.5 | ~~Manual scrolling and the 2 blinking arrows.~~ **Done and tested on the phone 2026-09-21.** Manual scrolling was already built in stage 4.1. The arrows are new. Tested with the phone screen set to 720 × 1150 (`adb shell wm size`), where only one row fits: the down arrow appeared, the grid scrolled with a finger, **both arrows showed at the same time**, and a hidden card in its last seconds turned its arrow **amber**. | S2, D23, D28 |
-   | 4.6 | Pause from all 3 sources, and the "3, 2, 1, Go" countdown at start and at every resume. | S8 |
+   | 4.6 | ~~Pause from all 3 sources, and the "3, 2, 1, Go" countdown at start and at every resume.~~ **Done and tested on the phone 2026-09-21.** The Pause button, the Back gesture and the app going to the background all pause the game. The countdown runs at the level start and at every resume, with every timer stopped and the keyboard open. | S8 |
    | 4.7 | Check the 3 overlays and confirm the 5 points in S11. (The dead-code removal moved to stage 4.1.) | S10, S11 |
 5. Check each bug in the bug record again. Fix the bugs that still exist.
 6. Update `README.md`, `PROGRESS.md`, `word_drop_documentation_1-7.md` (sections 1, 2.4, 5, 6) and the widget test.
