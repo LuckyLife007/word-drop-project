@@ -2,15 +2,17 @@
 
 **Branch**: `redesign/timed-word-cards` (created from `master` at `75ea4d4`)
 **Started**: September 16, 2026
-**Status**: Building. Decisions D1–D34 and the Specification are complete.
-Plan steps 1 to 3 are done, and **stage 4.1 (static layout) is built and tested
-on a real phone**. Next: open question I1 (make the sections shorter), then
-stage 4.2.
+**Status**: The new game screen is built. Decisions D1–D34 and the
+Specification are complete, and Plan steps 1 to 4 are done: all 7 build stages
+are tested on a real phone, and the game plays end to end. Next: Plan step 5
+(check every bug again).
 
-> **Resume here (next session):** Plan steps 1 to 3, **stages 4.1 to 4.6**,
-> and the height work of **Group I** are done and tested on a real phone.
-> **Next: stage 4.7** — check the 3 overlays, and confirm the 5 points in S11.
-> After that, Plan step 5 (check every bug again).
+> **Resume here (next session):** **Plan step 4 is complete.** All 7 build
+> stages (4.1 to 4.7) and the height work of **Group I** are done and tested on
+> a real phone. The game plays end to end: cards, countdowns, matching, score,
+> lives, pause and the 3 overlays.
+> **Next: Plan step 5** — check every bug in the record again, and fix the ones
+> that still exist.
 
 ---
 
@@ -563,17 +565,29 @@ still fit. BUG-7 (unused duplicate logic) is still open.
 
 ### S11. Points to confirm during the build
 
-These are small details. I propose an answer for each. Correct any of them
-when you see the build.
+**All 5 are confirmed on the phone (stage 4.7, 2026-09-21).**
 
-1. A new card takes the free position with the lowest number (S4). The other
-   option is a random free position.
-2. The clue uses 3 lines and the card is 88px high (S2). Test T1 must show
-   that this is readable on a real phone.
-3. The input check starts at 6 characters (S6), not 4.
-4. The seconds number shows `0` during the red flash (S3).
-5. The arrow is white, and it changes colour with the state of the hidden
-   card (S2).
+1. **A new card takes the free position with the lowest number** (S4).
+   Confirmed: cards fill 0, 1, 2, 3, 4, 5 in order, and a freed position is
+   refilled at once.
+2. **The clue uses 3 lines and the card is 88px high** (S2). Confirmed: the
+   52-character clue "Instrument for drawing or writing that can be erased"
+   renders in full on 2 lines, with no cut text. The longest clue in the word
+   bank is 54 characters, so the 3-line budget holds.
+3. **The input check starts at 6 characters** (S6). Confirmed: "frien" (5
+   letters) changed nothing, and the sixth letter matched the FRIEND card.
+4. **The seconds number shows `0` during the red flash** (S3). Confirmed in
+   stage 4.2.
+5. **The arrow is white, and it changes colour with the hidden card** (S2).
+   Confirmed in stage 4.5: white, then amber.
+
+**Also decided in stage 4.7 — what the Back gesture does, by state:**
+
+| State | Back does |
+|-------|-----------|
+| Playing | Pauses the game. The screen stays, so one careless swipe never throws a run away (D21). |
+| Paused | Nothing. The overlay already offers "Resume Game" and "End Game". |
+| Game Over or Level Complete | Leaves the screen, back to Level Selection. The run is finished, so there is nothing to protect. |
 
 ---
 
@@ -588,8 +602,8 @@ when you see the build.
    `level_selection_screen.dart` and `game_screen.dart` use the new names.
    `GameManager` needed no change, as section S10 says. `flutter analyze`
    reports only the 2 known notes of BUG-10.
-4. **Next:** build the new game screen in stages. Test on a mobile device after
-   each stage.
+4. ~~Build the new game screen in stages.~~ **Done 2026-09-21.** All 7 stages
+   are built and tested on a real phone.
 
    | Stage | Content | Specification |
    |-------|---------|---------------|
@@ -599,8 +613,11 @@ when you see the build.
    | 4.4 | ~~Input matching, green flash, score, and the end of a level.~~ **Done 2026-09-21.** Tested on the phone: a wrong word gave no feedback and no penalty; a word that was not on the grid matched nothing; the correct word turned the card green with a green border, gave +5 with the gold score highlight, cleared the field and kept the keyboard; the card left after the 500ms flash and the position was refilled. **The end of a level is also tested: Z3 played Level 1 to 100/100 on 2026-09-21.** The Level Complete overlay showed Score 100/100, Time 1:44 and "New Record!", with Continue, Replay Level and Level Select. | S6, S7 |
    | 4.5 | ~~Manual scrolling and the 2 blinking arrows.~~ **Done and tested on the phone 2026-09-21.** Manual scrolling was already built in stage 4.1. The arrows are new. Tested with the phone screen set to 720 × 1150 (`adb shell wm size`), where only one row fits: the down arrow appeared, the grid scrolled with a finger, **both arrows showed at the same time**, and a hidden card in its last seconds turned its arrow **amber**. | S2, D23, D28 |
    | 4.6 | ~~Pause from all 3 sources, and the "3, 2, 1, Go" countdown at start and at every resume.~~ **Done and tested on the phone 2026-09-21.** The Pause button, the Back gesture and the app going to the background all pause the game. The countdown runs at the level start and at every resume, with every timer stopped and the keyboard open. | S8 |
-   | 4.7 | Check the 3 overlays and confirm the 5 points in S11. (The dead-code removal moved to stage 4.1.) | S10, S11 |
-5. Check each bug in the bug record again. Fix the bugs that still exist.
+   | 4.7 | ~~Check the 3 overlays and confirm the 5 points in S11.~~ **Done and tested on the phone 2026-09-21.** All 3 overlays work with the card design. All 5 S11 points are confirmed. The Back gesture now leaves the screen when the run is over. Clean-up: the 4 temporary `// ignore:` lines are gone, the file header describes the card design instead of the falling words, and no comment names the old engine. (The dead-code removal happened in stage 4.1.) | S10, S11 |
+5. **Next:** check each bug in the bug record again. Fix the bugs that still
+   exist. BUG-4 (2 wrong hints), BUG-5 (the empty `assets/audio/` folder),
+   BUG-6 (the failing widget test) and BUG-14 (the main menu overflows on a
+   short screen) do not depend on the redesign, so they need a real fix.
 6. Update `README.md`, `PROGRESS.md`, `word_drop_documentation_1-7.md` (sections 1, 2.4, 5, 6) and the widget test.
 7. Test the full game on mobile devices. Then merge to `master`.
 

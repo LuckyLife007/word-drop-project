@@ -1,73 +1,40 @@
 // ============================================================================
 // GAME SCREEN
 // ============================================================================
-// This is the main gameplay screen — where words fall from the sky and the
-// player types answers to catch them before they hit the ground.
+// The main gameplay screen. Word cards sit in a fixed grid, each card counts
+// down on its own, and the player types the full word before the time ends.
 //
-// STAGE 7 (THIS FILE): Pause — the player can freeze the game mid-run, review
-// current progress (level / score / time / lives), then resume or abandon.
-// All word fall animations, spawn timer, and stopwatch freeze on pause and
-// are accurately restored on resume.
+// THE WORDS DO NOT FALL ANY MORE.
+// The old design dropped words from the top of the screen. On a phone the
+// keyboard takes about half of the height, so the fall area was too short and
+// the cards jumped every time the keyboard opened or closed. REDESIGN.md holds
+// the full decision log. The short version is decision D1: word cards with
+// their own countdown, in a grid that does not move.
 //
-// WHAT IS IN THIS STAGE:
-//   - Everything from Stages 1–6
-//   - _isPaused flag: stops new spawns and input matching while paused
-//   - _pauseOverlayController: 500ms ScaleTransition entrance for pause card
-//   - _onPausePressed(): freezes falling words + timers, shows pause overlay
-//   - _onResume(): restores all controllers, restarts spawn + clock timers
-//   - _onEndGame(): exits to Level Selection without saving progress
-//   - _buildPauseOverlay(): pause UI card (level/score/time/lives + buttons)
-//   - _startSpawnTimer({spawnImmediately}): new named param skips initial spawn
-//     on resume so mid-fall words aren't joined by an immediate new spawn
+// THE RULES THIS FILE FOLLOWS (REDESIGN.md, section "Specification"):
+//   S2  Layout: header, a 2 × 3 grid of cards, an input row, the keyboard.
+//       The grid scrolls only on a screen too short for 6 cards (D20).
+//   S3  A card: hint + seconds number, clue, and a timer bar on the bottom
+//       edge. White, amber in the last 5.0s (D25), red in the last 0.6s
+//       with 1 life lost (D13, D15), green when answered.
+//   S4  6 fixed positions, numbered 0 to 5 in reading order. A new card takes
+//       the free position with the lowest number. Cards never move (D17).
+//   S5  A new card every newCardDelay. When the grid is full the next card
+//       waits (D16). The "+" button adds one at once (D14).
+//   S6  Matching: full word, from 6 characters, first match in grid order.
+//       A wrong word gives no feedback and no penalty (E2, D27).
+//   S7  5 points per word, 20 words complete the level (D8).
+//   S8  Pause from 3 sources, and "3, 2, 1, Go" at start and every resume
+//       (D21, D22, D30). A pause costs nothing (D32).
 //
-// PER DOCUMENTATION:
-//
-// Section 5.1 — Word Drop Mechanics:
-//   - Use AnimationController with Curves.linear for constant velocity
-//   - Word widgets are Positioned inside a Stack
-//   - Fall distance: effective height = game area height - groundOffset - cardHeight
-//
-// Section 5.3 — Fall Speed Calculations:
-//   - Fall duration from LevelConfig.cardTime (e.g. 30000ms for Level 1)
-//
-// Section 5.4 — Collision Detection:
-//   - Use Animation.addStatusListener to detect AnimationStatus.completed
-//
-// Section 5.5 — Animation Durations:
-//   - Fall: Curves.linear, duration = cardTime
-//   - Spawn fade-in: TODO (will be added as polish)
-//
-// Section 6.2 — Visual Hierarchy for word cards:
-//   - "High-contrast cards: white background, dark text"
-//   - "Incomplete word in large monospace font (bold, letter-spaced)"
-//   - "Clue in smaller italic gray text below"
-//
-// STAGE ROADMAP (see PROGRESS.md for full details):
-//   Stage 1: Static layout — three zones visible and correctly sized
-//   Stage 2: Single falling word using AnimationController + Curves.linear
-//   Stage 3: Spawn timer + multiple simultaneous words + overlap prevention
-//   Stage 4: Input matching — onChanged checks typed text against words
-//   Stage 5: Lives + scoring — ground hit deducts life, overlap fix
-//   Stage 6: Game Over and Level Complete overlays
-//   Stage 7 (THIS): Pause overlay — freezes all animations and timers
-//
-// CHANGELOG:
-//   - Stage 1: Initial creation — static layout, three zones
-//   - Stage 2: Added FallingWord class, AnimationController-driven fall,
-//              LayoutBuilder for game area dimensions, stopwatch timer
-//   - Stage 3: Added spawn timer, overlap prevention, _wordsCompleted counter,
-//              _gameAreaWidth tracking, max-10-words cap
-//   - Stage 4: Added input matching (_onInputChanged), green flash animation,
-//              active score + wordsCompleted increments, GameManager.recordCorrectWord()
-//   - Stage 5: Lives system, ground hit red pulse, game over detection,
-//              score gold highlight, 2D overlap fix (_gameAreaHeight added)
-//   - Stage 5 (pre-Stage-6 fixes): Calculated-valid-range overlap prevention
-//              replaces 10-retry approach; score capped at 100 max; level
-//              complete detection added (_isLevelComplete + _handleLevelComplete)
-//   - Stage 6: Game Over + Level Complete overlays, ScaleTransition entrance
-//   - Stage 7: Pause overlay — _isPaused + _pauseOverlayController,
-//              _onPausePressed / _onResume / _onEndGame, _buildPauseOverlay,
-//              _startSpawnTimer({spawnImmediately}) named parameter
+// HOW IT WAS BUILT (REDESIGN.md, Plan step 4):
+//   4.1  the static grid and the input row
+//   4.2  one card with a working countdown
+//   4.3  the automatic interval, the waiting card, the "+" button
+//   4.4  input matching, the green flash, the score
+//   4.5  the 2 blinking arrows for cards outside the visible area
+//   4.6  pause from all 3 sources, and the "3, 2, 1, Go" countdown
+//   4.7  clean-up: this header, the overlays, and the S11 details
 // ============================================================================
 
 import 'dart:async'; // For Timer (used by the stopwatch display updater)
@@ -242,19 +209,17 @@ class _GameScreenState extends State<GameScreen>
 
   /// True while the game is paused.
   ///
-  /// Set by _onPausePressed() and cleared by _onResume(). While true:
-  ///   - New word spawns are blocked (_spawnWord guard)
-  ///   - Input matching is blocked (_onInputChanged guard)
-  ///   - All falling word controllers are stopped (frozen in place)
-  ///   - Spawn timer and stopwatch are cancelled/stopped
-  ///   - The Pause overlay card is shown over the game
+  /// Set by _pauseGame() and cleared by _onResume(). While true:
+  ///   - no new card appears (_spawnCard guard)
+  ///   - the input is ignored (_onInputChanged guard)
+  ///   - every card countdown is stopped (frozen at its value)
+  ///   - the new-card interval and the clock are stopped
+  ///   - the Pause overlay covers the game
   bool _isPaused = false;
 
   /// Points scored this level (0–100). Each correct word = +5 points.
   /// Incremented by 5 in _onInputChanged() on each correct guess.
   ///
-  /// The ignore is temporary: stage 4.4 writes this field again.
-  // ignore: prefer_final_fields
   int _score = 0;
 
   /// How many words the player has correctly guessed this level (0–20).
@@ -270,8 +235,6 @@ class _GameScreenState extends State<GameScreen>
   /// a word. Also passed to GameManager.recordCorrectWord() so that
   /// getNextWord() returns the right word length for the next card.
   ///
-  /// The ignores are temporary: stage 4.4 writes and reads this field again.
-  // ignore: prefer_final_fields, unused_field
   int _wordsCompleted = 0;
 
   /// Elapsed time displayed in the header (e.g. "1:42").
@@ -341,7 +304,6 @@ class _GameScreenState extends State<GameScreen>
   Timer? _newCardTimer;
 
   // (Flash animations are per-word — see _matchControllers and
-  //  _groundHitControllers above and _buildFallingWordWidget below.)
 
   /// Drives the brief gold highlight on the score text when a word is matched.
   ///
@@ -876,8 +838,6 @@ class _GameScreenState extends State<GameScreen>
   /// Once the level is won there is no gameplay reason to watch remaining words
   /// hit the ground. Freezing them keeps the screen clean and signals clearly
   /// that the level has ended.
-  /// The ignore is temporary: stage 4.4 calls this at the 20th correct word.
-  // ignore: unused_element
   void _handleLevelComplete() {
     _isLevelComplete = true;
 
@@ -1816,14 +1776,21 @@ class _GameScreenState extends State<GameScreen>
   Widget build(BuildContext context) {
     // PopScope catches the system Back gesture (REDESIGN.md D21).
     //
-    // During play, Back PAUSES the game instead of leaving the screen. The
-    // player then chooses "Resume Game" or "End Game" in the overlay, so a
-    // run is never lost by one careless swipe.
+    // WHAT BACK DOES, BY STATE:
+    //   playing  — it PAUSES the game. The screen stays, so one careless
+    //              swipe never throws a run away.
+    //   paused   — nothing. The overlay already offers "Resume Game" and
+    //              "End Game", and those 2 words are clearer than a gesture.
+    //   game over / level complete — it LEAVES the screen, back to Level
+    //              Selection. The run is finished, so there is nothing to
+    //              protect, and trapping the player would be rude.
+    final bool runIsOver = _isGameOver || _isLevelComplete;
+
     return PopScope(
-      canPop: false,
+      canPop: runIsOver,
       onPopInvokedWithResult: (bool didPop, Object? result) {
         if (didPop || !mounted) return;
-        if (_isPaused || _isGameOver || _isLevelComplete) return;
+        if (_isPaused) return;
         _pauseGame();
       },
       child: _buildScaffold(context),
