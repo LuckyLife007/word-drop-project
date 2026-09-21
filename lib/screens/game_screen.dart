@@ -1,16 +1,16 @@
 // ============================================================================
 // GAME SCREEN
 // ============================================================================
-// This is the main gameplay screen â€” where words fall from the sky and the
+// This is the main gameplay screen — where words fall from the sky and the
 // player types answers to catch them before they hit the ground.
 //
-// STAGE 7 (THIS FILE): Pause â€” the player can freeze the game mid-run, review
+// STAGE 7 (THIS FILE): Pause — the player can freeze the game mid-run, review
 // current progress (level / score / time / lives), then resume or abandon.
 // All word fall animations, spawn timer, and stopwatch freeze on pause and
 // are accurately restored on resume.
 //
 // WHAT IS IN THIS STAGE:
-//   - Everything from Stages 1â€“6
+//   - Everything from Stages 1–6
 //   - _isPaused flag: stops new spawns and input matching while paused
 //   - _pauseOverlayController: 500ms ScaleTransition entrance for pause card
 //   - _onPausePressed(): freezes falling words + timers, shows pause overlay
@@ -22,37 +22,37 @@
 //
 // PER DOCUMENTATION:
 //
-// Section 5.1 â€” Word Drop Mechanics:
+// Section 5.1 — Word Drop Mechanics:
 //   - Use AnimationController with Curves.linear for constant velocity
 //   - Word widgets are Positioned inside a Stack
 //   - Fall distance: effective height = game area height - groundOffset - cardHeight
 //
-// Section 5.3 â€” Fall Speed Calculations:
+// Section 5.3 — Fall Speed Calculations:
 //   - Fall duration from LevelConfig.cardTime (e.g. 30000ms for Level 1)
 //
-// Section 5.4 â€” Collision Detection:
+// Section 5.4 — Collision Detection:
 //   - Use Animation.addStatusListener to detect AnimationStatus.completed
 //
-// Section 5.5 â€” Animation Durations:
+// Section 5.5 — Animation Durations:
 //   - Fall: Curves.linear, duration = cardTime
 //   - Spawn fade-in: TODO (will be added as polish)
 //
-// Section 6.2 â€” Visual Hierarchy for word cards:
+// Section 6.2 — Visual Hierarchy for word cards:
 //   - "High-contrast cards: white background, dark text"
 //   - "Incomplete word in large monospace font (bold, letter-spaced)"
 //   - "Clue in smaller italic gray text below"
 //
 // STAGE ROADMAP (see PROGRESS.md for full details):
-//   Stage 1: Static layout â€” three zones visible and correctly sized
+//   Stage 1: Static layout — three zones visible and correctly sized
 //   Stage 2: Single falling word using AnimationController + Curves.linear
 //   Stage 3: Spawn timer + multiple simultaneous words + overlap prevention
-//   Stage 4: Input matching â€” onChanged checks typed text against words
-//   Stage 5: Lives + scoring â€” ground hit deducts life, overlap fix
+//   Stage 4: Input matching — onChanged checks typed text against words
+//   Stage 5: Lives + scoring — ground hit deducts life, overlap fix
 //   Stage 6: Game Over and Level Complete overlays
-//   Stage 7 (THIS): Pause overlay â€” freezes all animations and timers
+//   Stage 7 (THIS): Pause overlay — freezes all animations and timers
 //
 // CHANGELOG:
-//   - Stage 1: Initial creation â€” static layout, three zones
+//   - Stage 1: Initial creation — static layout, three zones
 //   - Stage 2: Added FallingWord class, AnimationController-driven fall,
 //              LayoutBuilder for game area dimensions, stopwatch timer
 //   - Stage 3: Added spawn timer, overlap prevention, _wordsCompleted counter,
@@ -65,7 +65,7 @@
 //              replaces 10-retry approach; score capped at 100 max; level
 //              complete detection added (_isLevelComplete + _handleLevelComplete)
 //   - Stage 6: Game Over + Level Complete overlays, ScaleTransition entrance
-//   - Stage 7: Pause overlay â€” _isPaused + _pauseOverlayController,
+//   - Stage 7: Pause overlay — _isPaused + _pauseOverlayController,
 //              _onPausePressed / _onResume / _onEndGame, _buildPauseOverlay,
 //              _startSpawnTimer({spawnImmediately}) named parameter
 // ============================================================================
@@ -162,6 +162,17 @@ class TimedCard {
   /// It stops the red flash from taking a second life on the next frame.
   bool lifeLost = false;
 
+  /// Drives the green "correct" flash, and is null until the player answers.
+  ///
+  /// 500ms in two halves (REDESIGN.md S3 and S9):
+  ///   0.0 to 0.5 — the card grows to 1.05 and turns green.
+  ///   0.5 to 1.0 — the card fades out. Then it leaves the grid.
+  AnimationController? matchFlash;
+
+  /// True once the player has answered this card correctly.
+  /// A matched card cannot fail and cannot match a second time.
+  bool get isMatched => matchFlash != null;
+
   TimedCard({
     required this.id,
     required this.hint,
@@ -172,10 +183,12 @@ class TimedCard {
     required this.timer,
   });
 
-  /// Disposes both controllers. Call this when the card leaves the screen.
+  /// Disposes every controller this card owns.
+  /// Call this when the card leaves the screen.
   void dispose() {
     entrance.dispose();
     timer.dispose();
+    matchFlash?.dispose();
   }
 }
 
@@ -202,7 +215,7 @@ class GameScreen extends StatefulWidget {
 /// State class for GameScreen.
 ///
 /// WHY TickerProviderStateMixin (not SingleTickerProviderStateMixin)?
-/// Multiple AnimationControllers run simultaneously in this screen â€” one per
+/// Multiple AnimationControllers run simultaneously in this screen — one per
 /// falling word, plus future controllers for flash/pulse effects.
 /// SingleTickerProviderStateMixin crashes if you try to create a second
 /// controller with it. TickerProviderStateMixin supports unlimited controllers.
@@ -243,14 +256,14 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   // ignore: prefer_final_fields
   int _score = 0;
 
-  /// How many words the player has correctly guessed this level (0â€“20).
+  /// How many words the player has correctly guessed this level (0–20).
   ///
   /// This drives word length progression within the level:
-  ///   _wordsCompleted 0â€“3  (words 1â€“4)  â†’ 6-letter words
-  ///   _wordsCompleted 4â€“7  (words 5â€“8)  â†’ 7-letter words
-  ///   _wordsCompleted 8â€“11 (words 9â€“12) â†’ 8-letter words
-  ///   _wordsCompleted 12â€“15             â†’ 9-letter words
-  ///   _wordsCompleted 16â€“19             â†’ 10-letter words
+  ///   _wordsCompleted 0–3  (words 1–4)  → 6-letter words
+  ///   _wordsCompleted 4–7  (words 5–8)  → 7-letter words
+  ///   _wordsCompleted 8–11 (words 9–12) → 8-letter words
+  ///   _wordsCompleted 12–15             → 9-letter words
+  ///   _wordsCompleted 16–19             → 10-letter words
   ///
   /// Incremented in _onInputChanged() each time the player correctly guesses
   /// a word. Also passed to GameManager.recordCorrectWord() so that
@@ -300,12 +313,12 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   /// Stored so it can be cancelled in dispose() and on pause (Stage 7).
   Timer? _newCardTimer;
 
-  // (Flash animations are per-word â€” see _matchControllers and
+  // (Flash animations are per-word — see _matchControllers and
   //  _groundHitControllers above and _buildFallingWordWidget below.)
 
   /// Drives the brief gold highlight on the score text when a word is matched.
   ///
-  /// Cycle: 0.0 â†’ 1.0 (150ms, gold in) then 1.0 â†’ 0.0 (150ms, gold out).
+  /// Cycle: 0.0 → 1.0 (150ms, gold in) then 1.0 → 0.0 (150ms, gold out).
   /// Total visible duration: 300ms (per Section 6.5 "brief gold highlight").
   ///
   /// The score text Color lerps from white to Color(0xFFFFD700) and back.
@@ -313,11 +326,11 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
   /// Drives the Game Over / Level Complete overlay entrance animation.
   ///
-  /// ScaleTransition scales the overlay card from 0â†’1 over 500ms with
+  /// ScaleTransition scales the overlay card from 0→1 over 500ms with
   /// Curves.easeOut, making it "pop" into view from the centre of the screen.
   /// (Section 6.4: "Overlay appear: ScaleTransition from center, 500ms, easeOut")
   ///
-  /// This single controller is reused for either overlay â€” only one can ever
+  /// This single controller is reused for either overlay — only one can ever
   /// be shown at a time since the flags _isGameOver and _isLevelComplete are
   /// mutually exclusive.
   late AnimationController _overlayController;
@@ -327,7 +340,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   /// Identical animation to _overlayController (500ms, Curves.easeOut) but
   /// kept separate so that _overlayController's state is never disturbed by
   /// pause/resume interactions. Reset and re-forwarded each time the player
-  /// pauses â€” supports multiple pause-resume cycles in one session.
+  /// pauses — supports multiple pause-resume cycles in one session.
   late AnimationController _pauseOverlayController;
 
   // ==========================================================================
@@ -335,7 +348,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   // ==========================================================================
 
   /// The player's actual completion time in milliseconds (0 until level ends).
-  /// Captured the moment the 20th word is matched â€” used by the overlay to
+  /// Captured the moment the 20th word is matched — used by the overlay to
   /// display the run time and compare against the previous best.
   int _completionTimeMs = 0;
 
@@ -374,7 +387,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     _textController = TextEditingController();
     _inputFocusNode = FocusNode();
 
-    // 150ms per direction Ã— 2 = 300ms total gold-flash cycle (Section 6.5).
+    // 150ms per direction × 2 = 300ms total gold-flash cycle (Section 6.5).
     _scoreHighlightController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 150),
@@ -519,7 +532,8 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     // The listener runs on every frame while the timer moves. It only acts at
     // the moment the red flash begins: the player loses 1 life there (D15).
     timer.addListener(() {
-      if (!mounted || card.lifeLost) return;
+      // A matched card is already leaving, so it must never fail (S6).
+      if (!mounted || card.lifeLost || card.isMatched) return;
       if (_remainingMs(card) <= kFailFlashMs) {
         _onCardFailed(card);
       }
@@ -680,11 +694,11 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     _inputFocusNode.unfocus();
 
     // Rebuild to show the overlay (which is gated on _isGameOver in build()),
-    // then animate the card from scale 0â†’1 over 500ms (Section 6.4).
+    // then animate the card from scale 0→1 over 500ms (Section 6.4).
     if (mounted) {
       setState(
         () {},
-      ); // _isGameOver already true â€” this makes the overlay appear
+      ); // _isGameOver already true — this makes the overlay appear
       _overlayController.forward();
     }
   }
@@ -737,7 +751,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
     // Save best time and unlock the next level.
     //
-    // Both calls are fire-and-forget async â€” we don't need to await them
+    // Both calls are fire-and-forget async — we don't need to await them
     // before showing the overlay. ProgressManager.saveBestTime() only writes
     // if this run was faster than the player's existing best. unlockLevel()
     // is a no-op if the next level is already unlocked or this is Level 5.
@@ -756,7 +770,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
     // Rebuild to show the overlay, then animate the card in (Section 6.4).
     if (mounted) {
-      setState(() {}); // _isLevelComplete already true â€” overlay now in tree
+      setState(() {}); // _isLevelComplete already true — overlay now in tree
       _overlayController.forward();
     }
   }
@@ -780,7 +794,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
           elapsed.inSeconds % 60; // remainder after full minutes
 
       // padLeft(2, '0') ensures single-digit seconds get a leading zero.
-      // e.g. 65 seconds â†’ 1:05 not 1:5
+      // e.g. 65 seconds → 1:05 not 1:5
       setState(() {
         _timerDisplay = '$minutes:${seconds.toString().padLeft(2, '0')}';
       });
@@ -823,15 +837,15 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     _inputFocusNode.unfocus();
 
     // Show the pause overlay: _isPaused = true puts it in the Stack, then
-    // animate the card in from scale 0â†’1 (same 500ms easeOut as other overlays).
-    setState(() {}); // _isPaused is now true â†’ overlay widget enters the tree
+    // animate the card in from scale 0→1 (same 500ms easeOut as other overlays).
+    setState(() {}); // _isPaused is now true → overlay widget enters the tree
     _pauseOverlayController.forward();
   }
 
   /// Called when the player taps "Resume Game" in the Pause overlay.
   ///
   /// Dismisses the overlay, restores all frozen falling word animations,
-  /// and restarts both the spawn timer (without an immediate extra spawn â€”
+  /// and restarts both the spawn timer (without an immediate extra spawn —
   /// existing words are mid-fall) and the stopwatch display timer.
   void _onResume() {
     // Reset the pause controller to 0 so it's ready for the next pause cycle.
@@ -867,7 +881,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     // Re-focus the input field so the player can type immediately on resume.
     _inputFocusNode.requestFocus();
 
-    setState(() {}); // _isPaused is now false â†’ overlay removed from Stack
+    setState(() {}); // _isPaused is now false → overlay removed from Stack
   }
 
   /// Called when the player taps "End Game" in the Pause overlay.
@@ -877,27 +891,99 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   ///
   /// WHY no progress save?
   /// The player chose to abandon the level mid-run. Saving a partial score
-  /// would be misleading â€” only fully completed runs count toward best times.
+  /// would be misleading — only fully completed runs count toward best times.
   void _onEndGame() {
     Navigator.pop(context);
   }
 
-  /// Called on every keystroke in the answer field.
+  /// Called on every keystroke in the answer field (REDESIGN.md S6).
   ///
-  /// STAGE 4.1 — this does nothing yet.
-  ///
-  /// Stage 4.4 builds the real matching logic (REDESIGN.md S6):
-  ///   - Start checking at 6 characters. The shortest word has 6 letters.
-  ///   - Compare the typed text with the answer of every card on the grid.
-  ///   - Check the cards in grid order, and stop at the first match.
-  ///   - Skip a card in the Failed (red) or Matched (green) state.
-  ///   - On a match: +5 points, a 500ms green flash, clear the field.
-  ///   - On a wrong word: no feedback and no penalty (D10/E2, D27).
+  /// RULES:
+  ///   - The check starts at 6 characters, because the shortest word in the
+  ///     word bank has 6 letters.
+  ///   - A match needs the FULL word. Case and outside spaces do not matter.
+  ///   - The cards are checked in grid order, and the first match wins. The
+  ///     same word is never on the grid twice, so only one card can match.
+  ///   - A card in the Failed (red) or Matched (green) state is skipped.
+  ///   - A wrong word gives no feedback and no penalty (D10/E2, D27).
   void _onInputChanged(String value) {
     // No matching after game over, level complete, or while paused.
     if (_isGameOver || _isLevelComplete || _isPaused) return;
 
-    // Stage 4.4 adds the card matching here.
+    // Normalise: uppercase and remove outside spaces. The field already forces
+    // uppercase, but we normalise again so the comparison is reliable.
+    final String typed = value.toUpperCase().trim();
+
+    // The shortest word has 6 letters, so shorter input cannot match.
+    if (typed.length < 6) return;
+
+    // Check the positions in grid order: 0, 1, 2, 3, 4, 5 (S6).
+    for (int i = 0; i < kMaxCards; i++) {
+      final TimedCard? card = _cardAt(i);
+      if (card == null) continue;
+
+      // A red card cannot be answered (D15), and a green card is already won.
+      if (card.lifeLost || card.isMatched) continue;
+
+      if (card.answer == typed) {
+        _onCardMatched(card);
+        return; // only one card can match
+      }
+    }
+  }
+
+  /// Handles a correct answer (REDESIGN.md S7).
+  ///
+  /// STEPS:
+  ///   1. Stop the card's countdown, so it cannot fail during the flash.
+  ///   2. Add 5 points, count the word, and tell GameManager, so the next
+  ///      card uses the right word length.
+  ///   3. Flash the score gold for 300ms.
+  ///   4. Clear the field and keep the keyboard, so the player types on.
+  ///   5. Play the 500ms green flash, then remove the card.
+  ///   6. At 20 correct words the level is complete.
+  void _onCardMatched(TimedCard card) {
+    // 1. The card is won: freeze its countdown.
+    card.timer.stop();
+
+    // 2. Score and counters.
+    // The score is capped at 100. Two matches in the same frame near the end
+    // of a level would otherwise show "105 / 100".
+    setState(() {
+      _score = (_score + 5).clamp(0, 100);
+      _wordsCompleted++;
+    });
+    GameManager().recordCorrectWord();
+
+    // 3. Gold highlight on the score (Section 6.5, 300ms).
+    _scoreHighlightController.reset();
+    _scoreHighlightController.forward().then((_) {
+      if (mounted) _scoreHighlightController.reverse();
+    });
+
+    // 4. Clear the field for the next word. The keyboard stays open (D21).
+    _textController.clear();
+    _inputFocusNode.requestFocus();
+
+    // 5. The green flash. One controller per card, so two cards can flash at
+    //    the same time if the player answers quickly.
+    final flash = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 500),
+    );
+    card.matchFlash = flash;
+
+    flash.addStatusListener((status) {
+      if (status == AnimationStatus.completed && mounted) {
+        _removeCard(card);
+      }
+    });
+
+    setState(() {}); // show the flash on the next frame
+    flash.forward();
+
+    // 6. 20 correct words = 100 points = level complete (D8).
+    if (_wordsCompleted >= 20) _handleLevelComplete();
   }
 
   /// Whether the "+" button can add a card right now (REDESIGN.md D14/H1a).
@@ -932,7 +1018,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   /// where the player types quickly and taps Enter before onChanged fires,
   /// or simply prefers to confirm with Enter rather than rely on live-match.
   ///
-  /// After the check (match or no match), always clears and refocuses â€”
+  /// After the check (match or no match), always clears and refocuses —
   /// Enter is treated as "submit this attempt, start the next one".
   void _onInputSubmitted(String value) {
     // Delegate to the same matching logic used by onChanged.
@@ -949,13 +1035,13 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   // OVERLAY NAVIGATION  (Stage 6)
   // ==========================================================================
 
-  /// Formats a duration in milliseconds as "M:SS" (e.g. 95000ms â†’ "1:35").
+  /// Formats a duration in milliseconds as "M:SS" (e.g. 95000ms → "1:35").
   ///
   /// Mirrors the format used by ProgressManager.getFormattedBestTime() so
   /// time values are displayed consistently across the app.
   String _formatTime(int ms) {
     final int totalSeconds =
-        ms ~/ 1000; // integer division â€” drops sub-seconds
+        ms ~/ 1000; // integer division — drops sub-seconds
     final int minutes = totalSeconds ~/ 60;
     final int seconds = totalSeconds % 60;
     // padLeft(2, '0') ensures "1:05" not "1:5".
@@ -970,9 +1056,9 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     if (_score == 0) return 'Every champion was once a beginner!';
     if (_score <= 20) return "You're just warming up!";
     if (_score <= 40) return "You're getting the hang of it!";
-    if (_score <= 60) return 'More than halfway â€” try again!';
+    if (_score <= 60) return 'More than halfway — try again!';
     if (_score <= 80) return 'So close! One more attempt!';
-    return "Almost there â€” you've got this!";
+    return "Almost there — you've got this!";
   }
 
   /// Restarts the current level in a fresh GameScreen instance.
@@ -987,7 +1073,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
         // Build a brand new GameScreen for the same level.
         // initState() will reinitialise GameManager and reset all counters.
         pageBuilder: (_, _, _) => GameScreen(level: widget.level),
-        // Simple fade transition â€” matches the rest of the app.
+        // Simple fade transition — matches the rest of the app.
         transitionsBuilder: (_, animation, _, child) =>
             FadeTransition(opacity: animation, child: child),
         transitionDuration: const Duration(milliseconds: 300),
@@ -998,7 +1084,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   /// Starts the next level (Level Complete overlay only).
   ///
   /// kAllLevels is 0-indexed, so kAllLevels[levelNumber] is the level AFTER
-  /// the current one (e.g. levelNumber=1 â†’ index 1 = Level 2).
+  /// the current one (e.g. levelNumber=1 → index 1 = Level 2).
   /// This is safe because _onContinue is only shown when levelNumber < 5.
   void _onContinue() {
     final LevelConfig nextLevel = kAllLevels[widget.level.levelNumber];
@@ -1015,7 +1101,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
   /// Returns to LevelSelectionScreen by popping this GameScreen off the stack.
   ///
-  /// Navigation stack: MainMenuScreen â†’ LevelSelectionScreen â†’ GameScreen.
+  /// Navigation stack: MainMenuScreen → LevelSelectionScreen → GameScreen.
   /// A single pop returns to the level list.
   void _onGoToLevelSelect() {
     Navigator.pop(context);
@@ -1038,7 +1124,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   /// Shows the final score, level name, and an encouragement message, then
   /// offers three navigation buttons: Try Again, Level Select, Main Menu.
   ///
-  /// Entry animation: ScaleTransition driven by _overlayController (0â†’1, 500ms,
+  /// Entry animation: ScaleTransition driven by _overlayController (0→1, 500ms,
   /// Curves.easeOut) so the card "pops in" from the centre of the screen.
   Widget _buildGameOverOverlay() {
     return Container(
@@ -1051,7 +1137,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
           padding: const EdgeInsets.symmetric(vertical: 16.0),
           child: Center(
             child: ScaleTransition(
-              // Animated scale from 0 to 1 â€” creates the "pop in" effect.
+              // Animated scale from 0 to 1 — creates the "pop in" effect.
               scale: CurvedAnimation(
                 parent: _overlayController,
                 curve: Curves.easeOut,
@@ -1077,7 +1163,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                   child: Column(
                     mainAxisSize: MainAxisSize.min, // Shrink-wrap to content
                     children: [
-                      // â”€â”€ ICON â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                      // ── ICON ──────────────────────────────────────────────────
                       const Icon(
                         Icons.heart_broken_rounded,
                         color: Color(0xFFE53935), // Red
@@ -1085,7 +1171,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                       ),
                       const SizedBox(height: 10.0),
 
-                      // â”€â”€ TITLE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                      // ── TITLE ─────────────────────────────────────────────────
                       const Text(
                         'GAME OVER',
                         style: TextStyle(
@@ -1097,14 +1183,14 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                       ),
                       const SizedBox(height: 22.0),
 
-                      // â”€â”€ STATS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                      // ── STATS ─────────────────────────────────────────────────
                       _buildOverlayStatRow('Level', widget.level.name),
                       const SizedBox(height: 8.0),
                       _buildOverlayStatRow('Score', '$_score / 100'),
                       const SizedBox(height: 18.0),
 
-                      // â”€â”€ ENCOURAGEMENT MESSAGE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-                      // Changes based on score â€” the closer the player was to 100,
+                      // ── ENCOURAGEMENT MESSAGE ─────────────────────────────────
+                      // Changes based on score — the closer the player was to 100,
                       // the more motivating the message (see _getEncouragementMessage).
                       Container(
                         width: double.infinity,
@@ -1128,7 +1214,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                       ),
                       const SizedBox(height: 28.0),
 
-                      // â”€â”€ BUTTONS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                      // ── BUTTONS ───────────────────────────────────────────────
                       // Try Again is the primary CTA (most likely action).
                       _buildOverlayButton(
                         'Try Again',
@@ -1162,12 +1248,12 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   /// "New Record!" badge in gold if this run beat the previous best time.
   ///
   /// Buttons:
-  ///   Levels 1â€“4: Continue (next level), Replay Level, Level Select
-  ///   Level 5 (final): No "Continue" â€” instead offers Replay and Main Menu
+  ///   Levels 1–4: Continue (next level), Replay Level, Level Select
+  ///   Level 5 (final): No "Continue" — instead offers Replay and Main Menu
   ///
   /// Entry animation: same ScaleTransition as the Game Over overlay.
   Widget _buildLevelCompleteOverlay() {
-    // Level 5 is the final level â€” "Continue" doesn't exist, and we show
+    // Level 5 is the final level — "Continue" doesn't exist, and we show
     // a special "YOU WIN!" title and a Main Menu button instead.
     final bool isLastLevel = widget.level.levelNumber == 5;
 
@@ -1205,7 +1291,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      // â”€â”€ ICON â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                      // ── ICON ──────────────────────────────────────────────────
                       Icon(
                         // Trophy for full game clear; checkmark for standard completion
                         isLastLevel
@@ -1218,7 +1304,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                       ),
                       const SizedBox(height: 10.0),
 
-                      // â”€â”€ TITLE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                      // ── TITLE ─────────────────────────────────────────────────
                       Text(
                         isLastLevel ? 'YOU WIN!' : 'LEVEL COMPLETE!',
                         style: const TextStyle(
@@ -1242,7 +1328,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                       ],
                       const SizedBox(height: 22.0),
 
-                      // â”€â”€ STATS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                      // ── STATS ─────────────────────────────────────────────────
                       _buildOverlayStatRow('Score', '100 / 100'),
                       const SizedBox(height: 8.0),
                       _buildOverlayStatRow(
@@ -1251,7 +1337,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                       ),
                       const SizedBox(height: 8.0),
 
-                      // Best time row â€” shows "New Record!" badge in gold if this
+                      // Best time row — shows "New Record!" badge in gold if this
                       // run beat the previous best, otherwise shows the existing best.
                       if (_isNewBestTime)
                         _buildNewBestBadgeRow()
@@ -1269,9 +1355,9 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                         ),
                       const SizedBox(height: 28.0),
 
-                      // â”€â”€ BUTTONS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                      // ── BUTTONS ───────────────────────────────────────────────
                       // Levels 1-4: Continue to next level is the primary CTA.
-                      // Level 5: No "Continue" â€” Replay becomes the primary CTA.
+                      // Level 5: No "Continue" — Replay becomes the primary CTA.
                       if (!isLastLevel) ...[
                         _buildOverlayButton(
                           'Continue',
@@ -1289,7 +1375,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                           onPressed: _onGoToLevelSelect,
                         ),
                       ] else ...[
-                        // Final level complete â€” offer replay + menu options.
+                        // Final level complete — offer replay + menu options.
                         _buildOverlayButton(
                           'Replay Level',
                           onPressed: _onTryAgain,
@@ -1329,7 +1415,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   ///   - "End Game"   (outlined): exits to Level Selection without saving
   ///
   /// Entry animation: ScaleTransition driven by _pauseOverlayController
-  /// (0â†’1, 500ms, Curves.easeOut) â€” identical style to the other overlays
+  /// (0→1, 500ms, Curves.easeOut) — identical style to the other overlays
   /// (Section 6.4: "Overlay appear: ScaleTransition from center, 500ms, easeOut").
   Widget _buildPauseOverlay() {
     return Container(
@@ -1342,7 +1428,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
           padding: const EdgeInsets.symmetric(vertical: 16.0),
           child: Center(
             child: ScaleTransition(
-              // Animated scale from 0 to 1 â€” creates the "pop in" effect.
+              // Animated scale from 0 to 1 — creates the "pop in" effect.
               scale: CurvedAnimation(
                 parent: _pauseOverlayController,
                 curve: Curves.easeOut,
@@ -1368,9 +1454,9 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                   child: Column(
                     mainAxisSize: MainAxisSize.min, // Shrink-wrap to content
                     children: [
-                      // â”€â”€ APP NAME â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                      // ── APP NAME ────────────────────────────────────────────────
                       // Small muted label above the icon anchors the overlay to
-                      // the game brand â€” helpful context when the screen is frozen.
+                      // the game brand — helpful context when the screen is frozen.
                       const Text(
                         'WORD DROP',
                         style: TextStyle(
@@ -1382,7 +1468,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                       ),
                       const SizedBox(height: 8.0),
 
-                      // â”€â”€ ICON â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                      // ── ICON ──────────────────────────────────────────────────
                       const Icon(
                         Icons.pause_circle_filled_rounded,
                         color: Color(
@@ -1392,7 +1478,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                       ),
                       const SizedBox(height: 10.0),
 
-                      // â”€â”€ TITLE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                      // ── TITLE ─────────────────────────────────────────────────
                       const Text(
                         'PAUSED',
                         style: TextStyle(
@@ -1404,7 +1490,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                       ),
                       const SizedBox(height: 22.0),
 
-                      // â”€â”€ STATS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                      // ── STATS ─────────────────────────────────────────────────
                       // Shows the player's live progress so they can decide whether
                       // to resume or cut the run short.
                       _buildOverlayStatRow('Level', widget.level.name),
@@ -1413,15 +1499,15 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                       const SizedBox(height: 8.0),
                       _buildOverlayStatRow('Time', _timerDisplay),
                       const SizedBox(height: 8.0),
-                      // Lives: "remaining / total" â€” e.g. "2 / 3" for Level 1
+                      // Lives: "remaining / total" — e.g. "2 / 3" for Level 1
                       _buildOverlayStatRow(
                         'Lives',
                         '$_lives / ${widget.level.lives}',
                       ),
                       const SizedBox(height: 28.0),
 
-                      // â”€â”€ BUTTONS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-                      // Resume is the primary CTA â€” most players pause briefly
+                      // ── BUTTONS ───────────────────────────────────────────────
+                      // Resume is the primary CTA — most players pause briefly
                       // and want to continue without thinking about it.
                       _buildOverlayButton(
                         'Resume Game',
@@ -1430,7 +1516,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                       ),
                       const SizedBox(height: 10.0),
                       // End Game exits to Level Select without saving. Secondary
-                      // action â€” outlined style signals it is the destructive option.
+                      // action — outlined style signals it is the destructive option.
                       _buildOverlayButton('End Game', onPressed: _onEndGame),
                     ],
                   ),
@@ -1512,8 +1598,8 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
   /// A full-width button for use inside an overlay card.
   ///
-  /// [isPrimary] = true  â†’ filled purple ElevatedButton (main CTA)
-  /// [isPrimary] = false â†’ outlined button (secondary actions)
+  /// [isPrimary] = true  → filled purple ElevatedButton (main CTA)
+  /// [isPrimary] = false → outlined button (secondary actions)
   Widget _buildOverlayButton(
     String label, {
     required VoidCallback onPressed,
@@ -1591,7 +1677,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
           // of the main game content without disrupting the Column's layout.
           child: Stack(
             children: [
-              // ALL GAME CONTENT â€” fills the full SafeArea via Positioned.fill.
+              // ALL GAME CONTENT — fills the full SafeArea via Positioned.fill.
               // This ensures the Column always occupies the same space regardless
               // of whether an overlay is currently showing on top of it.
               Positioned.fill(
@@ -1611,7 +1697,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
               // GAME OVER OVERLAY (Section 2.6 / 6.4)
               // Appears when lives hit 0. ScaleTransition animates the card
-              // from scale 0â†’1 over 500ms with Curves.easeOut so it "pops in"
+              // from scale 0→1 over 500ms with Curves.easeOut so it "pops in"
               // from the centre. Semi-transparent backdrop dims the game below.
               if (_isGameOver) Positioned.fill(child: _buildGameOverOverlay()),
 
@@ -1637,7 +1723,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   // HEADER
   // ==========================================================================
 
-  /// Header bar: level name (gold) above a row of [Score | â¤ï¸ Hearts | Timer].
+  /// Header bar: level name (gold) above a row of [Score | hearts | Timer].
   /// HEIGHT (REDESIGN.md open question I1, lever 1, and I2):
   ///   Start:  84px — 20px padding, gold level name (17px), 8px gap,
   ///           stat row (37px), 1px border.
@@ -1711,8 +1797,8 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
   /// A labelled two-line stat block (small label above a larger value).
   ///
-  /// [highlightController] â€” optional. When provided the value text briefly
-  /// turns gold (Color(0xFFFFD700)) as the controller animates 0â†’1â†’0.
+  /// [highlightController] — optional. When provided the value text briefly
+  /// turns gold (Color(0xFFFFD700)) as the controller animates 0→1→0.
   /// Used on the score block to give a 300ms gold flash on correct guesses
   /// (Section 6.5: "Brief gold highlight on score text, 300ms opacity tween").
   Widget _buildStatBlock({
@@ -1757,7 +1843,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
           AnimatedBuilder(
             animation: highlightController,
             builder: (context, _) {
-              // Lerp: white (at controller.value=0) â†’ gold (at 1.0).
+              // Lerp: white (at controller.value=0) → gold (at 1.0).
               final Color color = Color.lerp(
                 Colors.white,
                 const Color(0xFFFFD700), // gold
@@ -1774,7 +1860,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
   /// A row of heart icons: red = life remaining, white outline = life lost.
   ///
-  /// Example â€” Level 1 (3 lives total), 1 lost: â¤ï¸ ðŸ¤ ðŸ¤
+  /// Example — Level 1 (3 lives total), 1 lost: 2 red hearts, 1 empty heart
   Widget _buildLivesHearts() {
     return Row(
       mainAxisSize: MainAxisSize.min,
@@ -1903,13 +1989,19 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   /// screen, including the other cards, is left alone.
   Widget _buildTimedCard(TimedCard card) {
     return AnimatedBuilder(
-      // Listen to both controllers: the entrance and the countdown.
-      animation: Listenable.merge([card.entrance, card.timer]),
+      // Listen to every controller this card owns: the entrance, the
+      // countdown, and the green flash when the player has answered.
+      animation: Listenable.merge([
+        card.entrance,
+        card.timer,
+        if (card.matchFlash != null) card.matchFlash!,
+      ]),
       builder: (context, _) {
         final int remainingMs = _remainingMs(card);
-        final bool isFailed = remainingMs <= kFailFlashMs;
+        final bool isMatched = card.isMatched;
+        final bool isFailed = !isMatched && remainingMs <= kFailFlashMs;
         final bool isWarning =
-            !isFailed && remainingMs <= (kWarningSeconds * 1000);
+            !isFailed && !isMatched && remainingMs <= (kWarningSeconds * 1000);
 
         // The seconds number. It never shows a negative value, and it shows 0
         // during the red flash (S11 point 4).
@@ -1924,9 +2016,27 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
             ? const Color(0xFFFFA000) // amber
             : const Color(0xFF667eea); // brand blue-purple
 
-        // The card body turns red during the flash so the failure is obvious
-        // even when the player is looking at another card.
-        final Color cardColor = isFailed
+        // GREEN FLASH (S3, 500ms in two halves):
+        //   first half  — the card grows to 1.05 and the green fades in
+        //   second half — the card fades out, then it leaves the grid
+        final double flashValue = card.matchFlash?.value ?? 0.0;
+        final double greenAmount = isMatched
+            ? (flashValue / 0.5).clamp(0.0, 1.0)
+            : 0.0;
+        final double matchFade = isMatched && flashValue > 0.5
+            ? 1.0 - ((flashValue - 0.5) / 0.5)
+            : 1.0;
+        final double matchScale = isMatched ? 1.0 + (0.05 * greenAmount) : 1.0;
+
+        // The card body: green when answered, red during a failure, white
+        // otherwise. A player who is looking at another card still sees it.
+        final Color cardColor = isMatched
+            ? Color.lerp(
+                Colors.white.withValues(alpha: 0.95),
+                const Color(0xFFC8E6C9), // light green
+                greenAmount,
+              )!
+            : isFailed
             ? const Color(0xFFFFCDD2) // light red
             : Colors.white.withValues(alpha: 0.95);
 
@@ -1937,19 +2047,21 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
         final double entranceValue = card.entrance.value;
 
         return Opacity(
-          opacity: entranceValue,
+          opacity: entranceValue * matchFade,
           child: Transform.scale(
-            scale: 0.95 + (0.05 * entranceValue),
+            scale: (0.95 + (0.05 * entranceValue)) * matchScale,
             child: Container(
               height: kCardHeight,
               decoration: BoxDecoration(
                 color: cardColor,
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(
-                  color: isFailed
-                      ? const Color(0xFFD32F2F)
+                  color: isMatched
+                      ? const Color(0xFF4CAF50) // green (success colour)
+                      : isFailed
+                      ? const Color(0xFFD32F2F) // red
                       : Colors.white.withValues(alpha: 0.35),
-                  width: isFailed ? 2.0 : 1.0,
+                  width: (isMatched || isFailed) ? 2.0 : 1.0,
                 ),
                 boxShadow: [
                   BoxShadow(
