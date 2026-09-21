@@ -7,10 +7,10 @@ Plan steps 1 to 3 are done, and **stage 4.1 (static layout) is built and tested
 on a real phone**. Next: open question I1 (make the sections shorter), then
 stage 4.2.
 
-> **Resume here (next session):** Plan steps 1 to 3, **stages 4.1 and 4.2**,
-> and the height work of **Group I** are done and tested on a real phone.
-> **Next: stage 4.3** — the automatic new-card interval, the waiting card when
-> the grid is full, and the "+" button (S5).
+> **Resume here (next session):** Plan steps 1 to 3, **stages 4.1, 4.2 and
+> 4.3**, and the height work of **Group I** are done and tested on a real
+> phone. **Next: stage 4.4** — input matching, the green flash, the score, and
+> the end of a level (S6, S7).
 
 ---
 
@@ -581,7 +581,7 @@ when you see the build.
    |-------|---------|---------------|
    | 4.1 | ~~Static layout: header, 6 empty grid positions in a scroll view, input row with the `[+]` and Pause buttons. No timers.~~ **Done 2026-09-20.** The falling-word engine was removed in this stage, not in 4.7, so the file holds no dead code between stages. **Test T1 is open: measure the grid on a real phone.** | S2, S4 |
    | 4.2 | ~~One card with a working countdown: number, bar, amber at 5.0s, red flash, life loss, removal.~~ **Done and tested on the phone 2026-09-21.** All 4 states confirmed on a Level 1 card (30s): blue and counting, amber at 5.0s, red card with `0` at 0.6s with 1 life lost, then removal at exactly 30s and the position became free. | S3 |
-   | 4.3 | Automatic new cards, the waiting card, the limit of 6, and the `[+]` button. | S5 |
+   | 4.3 | ~~Automatic new cards, the waiting card, the limit of 6, and the `[+]` button.~~ **Done and tested on the phone 2026-09-21.** Cards appeared every 5.0s on Level 1; `[+]` added one at once and restarted the interval from zero; the grid never went above 6; `[+]` showed as disabled while the grid was full; a freed position was refilled at once by the waiting card. | S5 |
    | 4.4 | Input matching, green flash, score, and the end of a level. | S6, S7 |
    | 4.5 | Manual scrolling and the 2 blinking arrows. | S2 |
    | 4.6 | Pause from all 3 sources, and the "3, 2, 1, Go" countdown at start and at every resume. | S8 |
@@ -610,6 +610,7 @@ Check each bug again after the redesign. Set **Status** to one of:
 | BUG-8 | `main.dart` | Wrong comments: the splash screen does not load progress (Level Select does), and the orientation comment says upside-down portrait is blocked (the code only sets `portraitUp`). | No | Open |
 | BUG-9 | `PROGRESS.md` | Names a method `advanceLevel()` that does not exist. | Yes — `PROGRESS.md` will be rewritten. | Open |
 | BUG-10 | `game_manager.dart` | 2 analyzer info notes: unnecessary string interpolation at lines 641 and 658. | Maybe | Open |
+| BUG-12 | `game_screen.dart` | **Found on the phone 2026-09-21 during the stage 4.3 test.** The Game Over overlay showed "BOTTOM OVERFLOWED BY 73 PIXELS", and the "Level Select" and "Main Menu" buttons were cut off. Cause: the keyboard stays open for the whole game (D21), and nothing closed it when the game ended, so the overlay had only the space above the keyboard. **Fixed:** `_handleGameOver()` and `_handleLevelComplete()` now close the keyboard, and all 3 overlays sit in a `SafeArea` + `SingleChildScrollView`, so a short screen scrolls instead of overflowing. | Yes — found by the redesign | **Fixed** |
 | BUG-11 | startup (web build) | An uncaught `AssertionError` appears in the browser console during start, **before** the word bank loads. It happens in `main()` or in the engine start, not in the game screen. The app then runs correctly. Found on 2026-09-20 with `flutter run -d web-server` in debug mode. The cause is not identified. The orientation lock in `main.dart` is the first suspect, because a browser on a desktop cannot lock the screen orientation. **Checked on Android on 2026-09-20: the phone log shows no assertion and no exception, so this is a web-only problem.** | No | Open (web only) |
 
 ### Features in the old design document that are not built

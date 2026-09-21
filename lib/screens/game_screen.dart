@@ -1,4 +1,4 @@
-﻿// ============================================================================
+// ============================================================================
 // GAME SCREEN
 // ============================================================================
 // This is the main gameplay screen â€” where words fall from the sky and the
@@ -70,9 +70,9 @@
 //              _startSpawnTimer({spawnImmediately}) named parameter
 // ============================================================================
 
-import 'dart:async';  // For Timer (used by the stopwatch display updater)
+import 'dart:async'; // For Timer (used by the stopwatch display updater)
 import 'package:flutter/material.dart';
-import '../managers/game_manager.dart';      // Provides the words to display
+import '../managers/game_manager.dart'; // Provides the words to display
 import '../managers/progress_manager.dart'; // Saves best time + unlocks next level
 import '../models/level_config.dart';
 
@@ -275,6 +275,13 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   /// Counter used to build a unique id for each card.
   int _cardSerial = 0;
 
+  /// True while one card waits for a free grid position (REDESIGN.md D16).
+  ///
+  /// The interval stops while a card waits, so only 1 card can wait. The
+  /// waiting card appears as soon as a position becomes free, and the
+  /// interval then starts again from zero.
+  bool _cardWaiting = false;
+
   // ==========================================================================
   // TIMER
   // ==========================================================================
@@ -390,18 +397,18 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       duration: const Duration(milliseconds: 500),
     );
 
-    // STAGE 4.2 — put ONE card on the grid.
+    // STAGE 4.3 — start the level: one card at once, then one every
+    // newCardDelay (REDESIGN.md S5, D11).
     //
     // WHY WAIT FOR THE FIRST FRAME AND 400ms?
     // The keyboard opens by itself (autofocus) and it takes about 300ms to
     // slide up. The grid changes height while that happens. We wait so the
-    // card appears on a screen that has stopped moving.
+    // first card appears on a screen that has stopped moving.
     //
-    // Stage 4.3 replaces this single card with the automatic interval and the
-    // "+" button. Stage 4.6 puts the "3, 2, 1, Go" countdown before it.
+    // Stage 4.6 puts the "3, 2, 1, Go" countdown in front of this (D30).
     WidgetsBinding.instance.addPostFrameCallback((_) {
       Future.delayed(const Duration(milliseconds: 400), () {
-        if (mounted) _spawnCard();
+        if (mounted) _startNewCardTimer(spawnNow: true);
       });
     });
   }
@@ -483,8 +490,9 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     // The answers already on the screen, so the same word cannot appear twice.
     final List<String> activeWords = _cards.map((c) => c.answer).toList();
 
-    final WordWithCombination? next =
-        GameManager().getNextWord(activeWords: activeWords);
+    final WordWithCombination? next = GameManager().getNextWord(
+      activeWords: activeWords,
+    );
     if (next == null) return; // word bank empty — should never happen
 
     final entrance = AnimationController(
@@ -563,9 +571,57 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   }
 
   /// Removes a card from the grid and frees its position.
+  ///
+  /// If a card was waiting for a free position (D16), it appears here at once,
+  /// and the automatic interval starts again from zero.
   void _removeCard(TimedCard card) {
     setState(() => _cards.remove(card));
     card.dispose();
+
+    if (_cardWaiting && !_isPaused && !_isGameOver && !_isLevelComplete) {
+      _cardWaiting = false;
+      _spawnCard();
+      // Same rule as the "+" button (H1b): after an out-of-order card, the
+      // interval counts again from zero.
+      _startNewCardTimer();
+    }
+  }
+
+  // ==========================================================================
+  // NEW-CARD INTERVAL  (Stage 4.3 — REDESIGN.md S5, D14, D16)
+  // ==========================================================================
+
+  /// Starts (or restarts) the automatic new-card interval.
+  ///
+  /// [spawnNow] puts one card on the grid before the first tick. The level
+  /// start uses it, so the player does not wait a full interval for the first
+  /// card. Every other caller leaves it false.
+  ///
+  /// The old timer is always cancelled first, so the interval counts from zero
+  /// every time. That is what D14/H1b and D16 require after a manual card or
+  /// after a waiting card appears.
+  void _startNewCardTimer({bool spawnNow = false}) {
+    _newCardTimer?.cancel();
+
+    if (spawnNow) _spawnCard();
+
+    _newCardTimer = Timer.periodic(widget.level.newCardDelayDuration, (_) {
+      if (!mounted) return;
+
+      // The interval does nothing while the game is not running.
+      if (_isPaused || _isGameOver || _isLevelComplete) return;
+
+      // FULL GRID (D16): the next card waits instead of being lost.
+      // The interval stops here, so only 1 card can ever wait.
+      if (_firstFreeIndex() == null) {
+        setState(() => _cardWaiting = true);
+        _newCardTimer?.cancel();
+        _newCardTimer = null;
+        return;
+      }
+
+      _spawnCard();
+    });
   }
 
   /// Stops the countdown of every card, and the entrance animations too.
@@ -615,10 +671,20 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     // Freeze every card behind the overlay (REDESIGN.md D22).
     _freezeAllCards();
 
+    // Close the keyboard.
+    //
+    // The keyboard stays open for the whole game (D21), but the game has ended
+    // here, so the player cannot type any more. The overlay also needs the
+    // full screen height: with the keyboard open it overflowed by 73px on the
+    // test phone, and the lower buttons were cut off.
+    _inputFocusNode.unfocus();
+
     // Rebuild to show the overlay (which is gated on _isGameOver in build()),
     // then animate the card from scale 0â†’1 over 500ms (Section 6.4).
     if (mounted) {
-      setState(() {}); // _isGameOver already true â€” this makes the overlay appear
+      setState(
+        () {},
+      ); // _isGameOver already true â€” this makes the overlay appear
       _overlayController.forward();
     }
   }
@@ -653,12 +719,18 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     // Freeze every card behind the overlay (REDESIGN.md D22).
     _freezeAllCards();
 
+    // Close the keyboard, for the same reason as in _handleGameOver():
+    // the level is won, so the player cannot type, and the overlay needs the
+    // full screen height.
+    _inputFocusNode.unfocus();
+
     // Capture best-time info BEFORE saving so we know if this run set a
     // new record. ProgressManager.saveBestTime() updates _bestTimes in memory
     // synchronously, so checking after the call would always look like a tie.
     final int elapsedMs = _stopwatch.elapsed.inMilliseconds;
-    final int? previousBest =
-        ProgressManager().getBestTime(widget.level.levelNumber);
+    final int? previousBest = ProgressManager().getBestTime(
+      widget.level.levelNumber,
+    );
 
     _completionTimeMs = elapsedMs;
     _isNewBestTime = previousBest == null || elapsedMs < previousBest;
@@ -704,7 +776,8 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
       final Duration elapsed = _stopwatch.elapsed;
       final int minutes = elapsed.inMinutes;
-      final int seconds = elapsed.inSeconds % 60; // remainder after full minutes
+      final int seconds =
+          elapsed.inSeconds % 60; // remainder after full minutes
 
       // padLeft(2, '0') ensures single-digit seconds get a leading zero.
       // e.g. 65 seconds â†’ 1:05 not 1:5
@@ -780,8 +853,16 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     // (the old one was cancelled by _onPausePressed).
     _startTimer();
 
-    // STAGE 4.3 will add: start the new-card interval again, without an
-    // immediate card.
+    // A card that was waiting during the pause (D16) appears now, because a
+    // position may have become free before the pause.
+    if (_cardWaiting && _firstFreeIndex() != null) {
+      _cardWaiting = false;
+      _spawnCard();
+    }
+
+    // Start the new-card interval again, counting from zero, and WITHOUT an
+    // extra card: the cards from before the pause are still on the grid.
+    _startNewCardTimer();
 
     // Re-focus the input field so the player can type immediately on resume.
     _inputFocusNode.requestFocus();
@@ -821,17 +902,27 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
   /// Whether the "+" button can add a card right now (REDESIGN.md D14/H1a).
   ///
-  /// STAGE 4.1: always false, because the card engine does not exist yet.
-  /// Stage 4.3 returns true when a grid position is free, the game runs, and
-  /// no card is waiting.
-  bool get _canAddCard => false;
+  /// It is false when:
+  ///   - the game is paused, over or won;
+  ///   - the grid is full;
+  ///   - a card is already waiting for a free position (D16), because "+"
+  ///     must never go before that card.
+  bool get _canAddCard =>
+      !_isPaused &&
+      !_isGameOver &&
+      !_isLevelComplete &&
+      !_cardWaiting &&
+      _firstFreeIndex() != null;
 
-  /// Called when the player taps the "+" button.
+  /// Called when the player taps the "+" button (REDESIGN.md D14).
   ///
-  /// STAGE 4.1: never called, because _canAddCard is false.
-  /// Stage 4.3 adds one card at once and restarts the interval from zero.
+  /// It shows one card at once, and the automatic interval then counts again
+  /// from zero (H1b). The player uses this to remove idle waiting on the slow
+  /// levels, and a faster best time earned this way is valid (H1e).
   void _onAddCardPressed() {
-    // Stage 4.3 adds the behaviour here.
+    if (!_canAddCard) return;
+    _spawnCard();
+    _startNewCardTimer();
   }
 
   /// Called when the player presses Enter/Go on the keyboard.
@@ -863,7 +954,8 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   /// Mirrors the format used by ProgressManager.getFormattedBestTime() so
   /// time values are displayed consistently across the app.
   String _formatTime(int ms) {
-    final int totalSeconds = ms ~/ 1000; // integer division â€” drops sub-seconds
+    final int totalSeconds =
+        ms ~/ 1000; // integer division â€” drops sub-seconds
     final int minutes = totalSeconds ~/ 60;
     final int seconds = totalSeconds % 60;
     // padLeft(2, '0') ensures "1:05" not "1:5".
@@ -952,103 +1044,110 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     return Container(
       // Semi-transparent black backdrop dims the frozen game beneath.
       color: Colors.black.withValues(alpha: 0.65),
-      child: Center(
-        child: ScaleTransition(
-          // Animated scale from 0 to 1 â€” creates the "pop in" effect.
-          scale: CurvedAnimation(
-            parent: _overlayController,
-            curve: Curves.easeOut,
-          ),
-          child: Container(
-            margin: const EdgeInsets.symmetric(horizontal: 28.0),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(24.0),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.35),
-                  blurRadius: 24.0,
-                  offset: const Offset(0, 8),
-                ),
-              ],
-            ),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 28.0,
-                vertical: 32.0,
+      // The overlay scrolls if the screen is short (for example while the
+      // keyboard is still sliding away). Without this the card overflows.
+      child: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(vertical: 16.0),
+          child: Center(
+            child: ScaleTransition(
+              // Animated scale from 0 to 1 â€” creates the "pop in" effect.
+              scale: CurvedAnimation(
+                parent: _overlayController,
+                curve: Curves.easeOut,
               ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min, // Shrink-wrap to content
-                children: [
-                  // â”€â”€ ICON â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-                  const Icon(
-                    Icons.heart_broken_rounded,
-                    color: Color(0xFFE53935), // Red
-                    size: 52.0,
+              child: Container(
+                margin: const EdgeInsets.symmetric(horizontal: 28.0),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(24.0),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.35),
+                      blurRadius: 24.0,
+                      offset: const Offset(0, 8),
+                    ),
+                  ],
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 28.0,
+                    vertical: 32.0,
                   ),
-                  const SizedBox(height: 10.0),
-
-                  // â”€â”€ TITLE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-                  const Text(
-                    'GAME OVER',
-                    style: TextStyle(
-                      fontSize: 26.0,
-                      fontWeight: FontWeight.w900,
-                      color: Color(0xFF333333),
-                      letterSpacing: 2.0,
-                    ),
-                  ),
-                  const SizedBox(height: 22.0),
-
-                  // â”€â”€ STATS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-                  _buildOverlayStatRow('Level', widget.level.name),
-                  const SizedBox(height: 8.0),
-                  _buildOverlayStatRow('Score', '$_score / 100'),
-                  const SizedBox(height: 18.0),
-
-                  // â”€â”€ ENCOURAGEMENT MESSAGE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-                  // Changes based on score â€” the closer the player was to 100,
-                  // the more motivating the message (see _getEncouragementMessage).
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 14.0,
-                      vertical: 10.0,
-                    ),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF3F0FA), // Faint purple tint
-                      borderRadius: BorderRadius.circular(10.0),
-                    ),
-                    child: Text(
-                      _getEncouragementMessage(),
-                      style: const TextStyle(
-                        fontSize: 14.0,
-                        fontStyle: FontStyle.italic,
-                        color: Color(0xFF555555),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min, // Shrink-wrap to content
+                    children: [
+                      // â”€â”€ ICON â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                      const Icon(
+                        Icons.heart_broken_rounded,
+                        color: Color(0xFFE53935), // Red
+                        size: 52.0,
                       ),
-                      textAlign: TextAlign.center,
-                    ),
-                  ),
-                  const SizedBox(height: 28.0),
+                      const SizedBox(height: 10.0),
 
-                  // â”€â”€ BUTTONS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-                  // Try Again is the primary CTA (most likely action).
-                  _buildOverlayButton(
-                    'Try Again',
-                    onPressed: _onTryAgain,
-                    isPrimary: true,
+                      // â”€â”€ TITLE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                      const Text(
+                        'GAME OVER',
+                        style: TextStyle(
+                          fontSize: 26.0,
+                          fontWeight: FontWeight.w900,
+                          color: Color(0xFF333333),
+                          letterSpacing: 2.0,
+                        ),
+                      ),
+                      const SizedBox(height: 22.0),
+
+                      // â”€â”€ STATS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                      _buildOverlayStatRow('Level', widget.level.name),
+                      const SizedBox(height: 8.0),
+                      _buildOverlayStatRow('Score', '$_score / 100'),
+                      const SizedBox(height: 18.0),
+
+                      // â”€â”€ ENCOURAGEMENT MESSAGE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                      // Changes based on score â€” the closer the player was to 100,
+                      // the more motivating the message (see _getEncouragementMessage).
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14.0,
+                          vertical: 10.0,
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF3F0FA), // Faint purple tint
+                          borderRadius: BorderRadius.circular(10.0),
+                        ),
+                        child: Text(
+                          _getEncouragementMessage(),
+                          style: const TextStyle(
+                            fontSize: 14.0,
+                            fontStyle: FontStyle.italic,
+                            color: Color(0xFF555555),
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                      const SizedBox(height: 28.0),
+
+                      // â”€â”€ BUTTONS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                      // Try Again is the primary CTA (most likely action).
+                      _buildOverlayButton(
+                        'Try Again',
+                        onPressed: _onTryAgain,
+                        isPrimary: true,
+                      ),
+                      const SizedBox(height: 10.0),
+                      _buildOverlayButton(
+                        'Level Select',
+                        onPressed: _onGoToLevelSelect,
+                      ),
+                      const SizedBox(height: 10.0),
+                      _buildOverlayButton(
+                        'Main Menu',
+                        onPressed: _onGoToMainMenu,
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 10.0),
-                  _buildOverlayButton(
-                    'Level Select',
-                    onPressed: _onGoToLevelSelect,
-                  ),
-                  const SizedBox(height: 10.0),
-                  _buildOverlayButton(
-                    'Main Menu',
-                    onPressed: _onGoToMainMenu,
-                  ),
-                ],
+                ),
               ),
             ),
           ),
@@ -1074,126 +1173,142 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
     return Container(
       color: Colors.black.withValues(alpha: 0.65),
-      child: Center(
-        child: ScaleTransition(
-          scale: CurvedAnimation(
-            parent: _overlayController,
-            curve: Curves.easeOut,
-          ),
-          child: Container(
-            margin: const EdgeInsets.symmetric(horizontal: 28.0),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(24.0),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.35),
-                  blurRadius: 24.0,
-                  offset: const Offset(0, 8),
-                ),
-              ],
-            ),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 28.0,
-                vertical: 32.0,
+      // The overlay scrolls if the screen is short (for example while the
+      // keyboard is still sliding away). Without this the card overflows.
+      child: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(vertical: 16.0),
+          child: Center(
+            child: ScaleTransition(
+              scale: CurvedAnimation(
+                parent: _overlayController,
+                curve: Curves.easeOut,
               ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // â”€â”€ ICON â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-                  Icon(
-                    // Trophy for full game clear; checkmark for standard completion
-                    isLastLevel ? Icons.emoji_events_rounded : Icons.check_circle_rounded,
-                    color: const Color(0xFFFFD700), // Gold (#FFD700 per Section 1.4)
-                    size: 52.0,
-                  ),
-                  const SizedBox(height: 10.0),
-
-                  // â”€â”€ TITLE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-                  Text(
-                    isLastLevel ? 'YOU WIN!' : 'LEVEL COMPLETE!',
-                    style: const TextStyle(
-                      fontSize: 24.0,
-                      fontWeight: FontWeight.w900,
-                      color: Color(0xFF333333),
-                      letterSpacing: 1.5,
-                    ),
-                  ),
-
-                  // Sub-title only for the final level
-                  if (isLastLevel) ...[
-                    const SizedBox(height: 4.0),
-                    const Text(
-                      'All 5 levels conquered!',
-                      style: TextStyle(
-                        fontSize: 14.0,
-                        color: Color(0xFF888888),
-                      ),
+              child: Container(
+                margin: const EdgeInsets.symmetric(horizontal: 28.0),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(24.0),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.35),
+                      blurRadius: 24.0,
+                      offset: const Offset(0, 8),
                     ),
                   ],
-                  const SizedBox(height: 22.0),
-
-                  // â”€â”€ STATS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-                  _buildOverlayStatRow('Score', '100 / 100'),
-                  const SizedBox(height: 8.0),
-                  _buildOverlayStatRow('Time', _formatTime(_completionTimeMs)),
-                  const SizedBox(height: 8.0),
-
-                  // Best time row â€” shows "New Record!" badge in gold if this
-                  // run beat the previous best, otherwise shows the existing best.
-                  if (_isNewBestTime)
-                    _buildNewBestBadgeRow()
-                  else
-                    _buildOverlayStatRow(
-                      'Best',
-                      // getBestTime now reflects the just-saved value (or the
-                      // existing best if this run was slower than the prior best).
-                      _formatTime(
-                        ProgressManager().getBestTime(widget.level.levelNumber) ??
-                            _completionTimeMs,
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 28.0,
+                    vertical: 32.0,
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // â”€â”€ ICON â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                      Icon(
+                        // Trophy for full game clear; checkmark for standard completion
+                        isLastLevel
+                            ? Icons.emoji_events_rounded
+                            : Icons.check_circle_rounded,
+                        color: const Color(
+                          0xFFFFD700,
+                        ), // Gold (#FFD700 per Section 1.4)
+                        size: 52.0,
                       ),
-                    ),
-                  const SizedBox(height: 28.0),
+                      const SizedBox(height: 10.0),
 
-                  // â”€â”€ BUTTONS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-                  // Levels 1-4: Continue to next level is the primary CTA.
-                  // Level 5: No "Continue" â€” Replay becomes the primary CTA.
-                  if (!isLastLevel) ...[
-                    _buildOverlayButton(
-                      'Continue',
-                      onPressed: _onContinue,
-                      isPrimary: true,
-                    ),
-                    const SizedBox(height: 10.0),
-                    _buildOverlayButton(
-                      'Replay Level',
-                      onPressed: _onTryAgain,
-                    ),
-                    const SizedBox(height: 10.0),
-                    _buildOverlayButton(
-                      'Level Select',
-                      onPressed: _onGoToLevelSelect,
-                    ),
-                  ] else ...[
-                    // Final level complete â€” offer replay + menu options.
-                    _buildOverlayButton(
-                      'Replay Level',
-                      onPressed: _onTryAgain,
-                      isPrimary: true,
-                    ),
-                    const SizedBox(height: 10.0),
-                    _buildOverlayButton(
-                      'Level Select',
-                      onPressed: _onGoToLevelSelect,
-                    ),
-                    const SizedBox(height: 10.0),
-                    _buildOverlayButton(
-                      'Main Menu',
-                      onPressed: _onGoToMainMenu,
-                    ),
-                  ],
-                ],
+                      // â”€â”€ TITLE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                      Text(
+                        isLastLevel ? 'YOU WIN!' : 'LEVEL COMPLETE!',
+                        style: const TextStyle(
+                          fontSize: 24.0,
+                          fontWeight: FontWeight.w900,
+                          color: Color(0xFF333333),
+                          letterSpacing: 1.5,
+                        ),
+                      ),
+
+                      // Sub-title only for the final level
+                      if (isLastLevel) ...[
+                        const SizedBox(height: 4.0),
+                        const Text(
+                          'All 5 levels conquered!',
+                          style: TextStyle(
+                            fontSize: 14.0,
+                            color: Color(0xFF888888),
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 22.0),
+
+                      // â”€â”€ STATS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                      _buildOverlayStatRow('Score', '100 / 100'),
+                      const SizedBox(height: 8.0),
+                      _buildOverlayStatRow(
+                        'Time',
+                        _formatTime(_completionTimeMs),
+                      ),
+                      const SizedBox(height: 8.0),
+
+                      // Best time row â€” shows "New Record!" badge in gold if this
+                      // run beat the previous best, otherwise shows the existing best.
+                      if (_isNewBestTime)
+                        _buildNewBestBadgeRow()
+                      else
+                        _buildOverlayStatRow(
+                          'Best',
+                          // getBestTime now reflects the just-saved value (or the
+                          // existing best if this run was slower than the prior best).
+                          _formatTime(
+                            ProgressManager().getBestTime(
+                                  widget.level.levelNumber,
+                                ) ??
+                                _completionTimeMs,
+                          ),
+                        ),
+                      const SizedBox(height: 28.0),
+
+                      // â”€â”€ BUTTONS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                      // Levels 1-4: Continue to next level is the primary CTA.
+                      // Level 5: No "Continue" â€” Replay becomes the primary CTA.
+                      if (!isLastLevel) ...[
+                        _buildOverlayButton(
+                          'Continue',
+                          onPressed: _onContinue,
+                          isPrimary: true,
+                        ),
+                        const SizedBox(height: 10.0),
+                        _buildOverlayButton(
+                          'Replay Level',
+                          onPressed: _onTryAgain,
+                        ),
+                        const SizedBox(height: 10.0),
+                        _buildOverlayButton(
+                          'Level Select',
+                          onPressed: _onGoToLevelSelect,
+                        ),
+                      ] else ...[
+                        // Final level complete â€” offer replay + menu options.
+                        _buildOverlayButton(
+                          'Replay Level',
+                          onPressed: _onTryAgain,
+                          isPrimary: true,
+                        ),
+                        const SizedBox(height: 10.0),
+                        _buildOverlayButton(
+                          'Level Select',
+                          onPressed: _onGoToLevelSelect,
+                        ),
+                        const SizedBox(height: 10.0),
+                        _buildOverlayButton(
+                          'Main Menu',
+                          onPressed: _onGoToMainMenu,
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
               ),
             ),
           ),
@@ -1220,100 +1335,106 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     return Container(
       // Semi-transparent black backdrop dims the frozen game beneath.
       color: Colors.black.withValues(alpha: 0.65),
-      child: Center(
-        child: ScaleTransition(
-          // Animated scale from 0 to 1 â€” creates the "pop in" effect.
-          scale: CurvedAnimation(
-            parent: _pauseOverlayController,
-            curve: Curves.easeOut,
-          ),
-          child: Container(
-            margin: const EdgeInsets.symmetric(horizontal: 28.0),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(24.0),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.35),
-                  blurRadius: 24.0,
-                  offset: const Offset(0, 8),
-                ),
-              ],
-            ),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 28.0,
-                vertical: 32.0,
+      // The overlay scrolls if the screen is short (for example while the
+      // keyboard is still sliding away). Without this the card overflows.
+      child: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(vertical: 16.0),
+          child: Center(
+            child: ScaleTransition(
+              // Animated scale from 0 to 1 â€” creates the "pop in" effect.
+              scale: CurvedAnimation(
+                parent: _pauseOverlayController,
+                curve: Curves.easeOut,
               ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min, // Shrink-wrap to content
-                children: [
-                  // â”€â”€ APP NAME â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-                  // Small muted label above the icon anchors the overlay to
-                  // the game brand â€” helpful context when the screen is frozen.
-                  const Text(
-                    'WORD DROP',
-                    style: TextStyle(
-                      fontSize: 13.0,
-                      fontWeight: FontWeight.w700,
-                      color: Color(0xFFAAAAAA), // Muted gray
-                      letterSpacing: 3.0,
+              child: Container(
+                margin: const EdgeInsets.symmetric(horizontal: 28.0),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(24.0),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.35),
+                      blurRadius: 24.0,
+                      offset: const Offset(0, 8),
                     ),
+                  ],
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 28.0,
+                    vertical: 32.0,
                   ),
-                  const SizedBox(height: 8.0),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min, // Shrink-wrap to content
+                    children: [
+                      // â”€â”€ APP NAME â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                      // Small muted label above the icon anchors the overlay to
+                      // the game brand â€” helpful context when the screen is frozen.
+                      const Text(
+                        'WORD DROP',
+                        style: TextStyle(
+                          fontSize: 13.0,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFFAAAAAA), // Muted gray
+                          letterSpacing: 3.0,
+                        ),
+                      ),
+                      const SizedBox(height: 8.0),
 
-                  // â”€â”€ ICON â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-                  const Icon(
-                    Icons.pause_circle_filled_rounded,
-                    color: Color(0xFF764ba2), // Deep purple (app accent colour)
-                    size: 52.0,
-                  ),
-                  const SizedBox(height: 10.0),
+                      // â”€â”€ ICON â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                      const Icon(
+                        Icons.pause_circle_filled_rounded,
+                        color: Color(
+                          0xFF764ba2,
+                        ), // Deep purple (app accent colour)
+                        size: 52.0,
+                      ),
+                      const SizedBox(height: 10.0),
 
-                  // â”€â”€ TITLE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-                  const Text(
-                    'PAUSED',
-                    style: TextStyle(
-                      fontSize: 26.0,
-                      fontWeight: FontWeight.w900,
-                      color: Color(0xFF333333),
-                      letterSpacing: 2.0,
-                    ),
-                  ),
-                  const SizedBox(height: 22.0),
+                      // â”€â”€ TITLE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                      const Text(
+                        'PAUSED',
+                        style: TextStyle(
+                          fontSize: 26.0,
+                          fontWeight: FontWeight.w900,
+                          color: Color(0xFF333333),
+                          letterSpacing: 2.0,
+                        ),
+                      ),
+                      const SizedBox(height: 22.0),
 
-                  // â”€â”€ STATS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-                  // Shows the player's live progress so they can decide whether
-                  // to resume or cut the run short.
-                  _buildOverlayStatRow('Level', widget.level.name),
-                  const SizedBox(height: 8.0),
-                  _buildOverlayStatRow('Score', '$_score / 100'),
-                  const SizedBox(height: 8.0),
-                  _buildOverlayStatRow('Time', _timerDisplay),
-                  const SizedBox(height: 8.0),
-                  // Lives: "remaining / total" â€” e.g. "2 / 3" for Level 1
-                  _buildOverlayStatRow(
-                    'Lives',
-                    '$_lives / ${widget.level.lives}',
-                  ),
-                  const SizedBox(height: 28.0),
+                      // â”€â”€ STATS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                      // Shows the player's live progress so they can decide whether
+                      // to resume or cut the run short.
+                      _buildOverlayStatRow('Level', widget.level.name),
+                      const SizedBox(height: 8.0),
+                      _buildOverlayStatRow('Score', '$_score / 100'),
+                      const SizedBox(height: 8.0),
+                      _buildOverlayStatRow('Time', _timerDisplay),
+                      const SizedBox(height: 8.0),
+                      // Lives: "remaining / total" â€” e.g. "2 / 3" for Level 1
+                      _buildOverlayStatRow(
+                        'Lives',
+                        '$_lives / ${widget.level.lives}',
+                      ),
+                      const SizedBox(height: 28.0),
 
-                  // â”€â”€ BUTTONS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-                  // Resume is the primary CTA â€” most players pause briefly
-                  // and want to continue without thinking about it.
-                  _buildOverlayButton(
-                    'Resume Game',
-                    onPressed: _onResume,
-                    isPrimary: true,
+                      // â”€â”€ BUTTONS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                      // Resume is the primary CTA â€” most players pause briefly
+                      // and want to continue without thinking about it.
+                      _buildOverlayButton(
+                        'Resume Game',
+                        onPressed: _onResume,
+                        isPrimary: true,
+                      ),
+                      const SizedBox(height: 10.0),
+                      // End Game exits to Level Select without saving. Secondary
+                      // action â€” outlined style signals it is the destructive option.
+                      _buildOverlayButton('End Game', onPressed: _onEndGame),
+                    ],
                   ),
-                  const SizedBox(height: 10.0),
-                  // End Game exits to Level Select without saving. Secondary
-                  // action â€” outlined style signals it is the destructive option.
-                  _buildOverlayButton(
-                    'End Game',
-                    onPressed: _onEndGame,
-                  ),
-                ],
+                ),
               ),
             ),
           ),
@@ -1363,10 +1484,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       children: [
         const Text(
           'Best',
-          style: TextStyle(
-            fontSize: 15.0,
-            color: Color(0xFF888888),
-          ),
+          style: TextStyle(fontSize: 15.0, color: Color(0xFF888888)),
         ),
         Row(
           mainAxisSize: MainAxisSize.min,
@@ -1434,10 +1552,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                   borderRadius: BorderRadius.circular(12.0),
                 ),
               ),
-              child: Text(
-                label,
-                style: const TextStyle(fontSize: 15.0),
-              ),
+              child: Text(label, style: const TextStyle(fontSize: 15.0)),
             ),
     );
   }
@@ -1498,8 +1613,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
               // Appears when lives hit 0. ScaleTransition animates the card
               // from scale 0â†’1 over 500ms with Curves.easeOut so it "pops in"
               // from the centre. Semi-transparent backdrop dims the game below.
-              if (_isGameOver)
-                Positioned.fill(child: _buildGameOverOverlay()),
+              if (_isGameOver) Positioned.fill(child: _buildGameOverOverlay()),
 
               // LEVEL COMPLETE OVERLAY (Section 2.6 / 6.4)
               // Appears when the player correctly guesses all 20 words.
@@ -1511,8 +1625,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
               // Appears when the player taps the Pause button mid-game.
               // All falling word animations and timers are frozen while shown.
               // "Resume Game" restores the game; "End Game" exits without saving.
-              if (_isPaused)
-                Positioned.fill(child: _buildPauseOverlay()),
+              if (_isPaused) Positioned.fill(child: _buildPauseOverlay()),
             ],
           ),
         ),
@@ -1579,10 +1692,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
               ),
 
               // LIVES HEARTS (centre — flex: 2 gives more room for 7 hearts)
-              Expanded(
-                flex: 2,
-                child: Center(child: _buildLivesHearts()),
-              ),
+              Expanded(flex: 2, child: Center(child: _buildLivesHearts())),
 
               // TIMER (right)
               Expanded(
@@ -1617,14 +1727,14 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     // It is now 15px with a 1px gap under a 9px label, and both lines use a
     // tight line box (height: 1.1). This is REDESIGN.md I1, asked by Z3.
     Widget valueText(Color color) => Text(
-          value,
-          style: TextStyle(
-            fontSize: 15,
-            fontWeight: FontWeight.bold,
-            color: color,
-            height: 1.1,
-          ),
-        );
+      value,
+      style: TextStyle(
+        fontSize: 15,
+        fontWeight: FontWeight.bold,
+        color: color,
+        height: 1.1,
+      ),
+    );
 
     return Column(
       crossAxisAlignment: alignment,
@@ -1676,7 +1786,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
           child: Icon(
             isAlive ? Icons.favorite_rounded : Icons.favorite_border_rounded,
             color: isAlive
-                ? const Color(0xFFFF4444)            // Bright red
+                ? const Color(0xFFFF4444) // Bright red
                 : Colors.white.withValues(alpha: 0.35), // Faded white
             size: 18, // Small enough for 7 hearts (Level 5) to fit in one row
           ),
@@ -1811,8 +1921,8 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
         final Color timerColor = isFailed
             ? const Color(0xFFD32F2F) // red
             : isWarning
-                ? const Color(0xFFFFA000) // amber
-                : const Color(0xFF667eea); // brand blue-purple
+            ? const Color(0xFFFFA000) // amber
+            : const Color(0xFF667eea); // brand blue-purple
 
         // The card body turns red during the flash so the failure is obvious
         // even when the player is looking at another card.
