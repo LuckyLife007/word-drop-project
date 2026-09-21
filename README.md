@@ -1,79 +1,117 @@
-# Word Drop - Flutter Mobile Game
+# Word Drop — Flutter Mobile Game
 
-A word puzzle game where players complete partially hidden words before they fall from the sky to the ground.
+**Fill the gaps before the time ends.**
+
+A word puzzle game. Word cards appear on the screen with letters missing, and
+each card counts down. Type the full word before the card's time runs out.
 
 ## What This Game Does
 
-Players see words falling down the screen with missing letters (like `_TT__T_ON` for "ATTENTION"). They have to:
-- Read the incomplete word pattern
-- Read a clue (like "What you pay when listening")
-- Type the complete word before it hits the ground
-- Complete 20 words per level to advance
+The player sees a card with a hidden letter pattern and a clue, for example:
+
+```
+I-L-N-                                    26
+Tropical vacation spot like Hawaii
+████████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+```
+
+The player types `ISLAND`. The card flashes green and gives 5 points.
+If the countdown reaches zero first, the card flashes red and the player
+loses 1 life.
+
+- Up to 6 cards are on the screen at once, in a fixed 2 × 3 grid.
+- A new card appears every few seconds. The pace depends on the level.
+- 20 correct words (100 points) complete a level.
+- 0 lives end the game.
 
 ## Game Features
 
-- **5 Progressive Levels**: From "Strolling" (easy) to "Impossible" (very challenging)
-- **100-Word Database**: 20 words each of 6, 7, 8, 9, and 10 letters
-- **Lives System**: 3-7 lives depending on level difficulty
-- **Speed Scaling**: Words fall faster and spawn more frequently as levels increase
-- **Clean UI**: Sky-themed gradient background with clear visual feedback
+- **5 levels**: Strolling, Jogging, Running, Bolting, Impossible
+- **100 words**: 20 words of each length from 6 to 10 letters
+- **300 hints and 300 clues**: 3 of each per word, so the same word looks
+  different every time
+- **Lives**: 3 on Level 1, up to 7 on Level 5
+- **Best times**: the game saves the fastest run for each level
+- **A "+" button**: the player can call the next card early
+
+## How a Level Works
+
+| Level | Name | Time per card | New card every | Lives |
+|-------|------|---------------|----------------|-------|
+| 1 | Strolling | 30 s | 5.0 s | 3 |
+| 2 | Jogging | 26 s | 4.5 s | 4 |
+| 3 | Running | 22 s | 4.0 s | 5 |
+| 4 | Bolting | 18 s | 3.5 s | 6 |
+| 5 | Impossible | 15 s | 3.0 s | 7 |
+
+The words get longer inside every level: words 1–4 have 6 letters, 5–8 have 7,
+9–12 have 8, 13–16 have 9, and 17–20 have 10.
 
 ## Tech Stack
 
 - **Framework**: Flutter (Dart)
-- **Target Platforms**: Android (MVP focus), iOS, Windows (future)
+- **Target platforms**: Android (the MVP), then iOS and Windows
 - **Minimum Android**: API 21 (Android 5.0)
 - **Minimum iOS**: iOS 12.0
+- **Storage**: `shared_preferences` for the unlocked levels and the best times
 
 ## Project Status
 
-🚧 **Currently in MVP Development** 🚧
+The game plays from end to end on Android: cards, countdowns, typing, score,
+lives, pause and the 3 end overlays.
 
-We're building the Android version first to get a working prototype, then we'll add polish and additional platform support.
+**Not built yet**: the How to Play, Settings and About screens; sound;
+particles; haptics.
 
-## Development Notes
+## Design History
 
-This is a learning project, so all code includes detailed comments explaining:
-- Why we chose specific approaches
-- How different parts work together
-- Flutter/Dart concepts for beginners
+The game first dropped words from the top of the screen. That does not work on
+a phone: the keyboard takes about half of the height, so the fall area was too
+short, and the cards jumped every time the keyboard opened or closed.
 
-## File Structure (Planned)
+`REDESIGN.md` records the change to timed word cards. It holds 34 numbered
+decisions, the full specification of the new screen, the build plan, and a bug
+record.
+
+## File Structure
 
 ```
 word_drop/
 ├── assets/
 │   ├── data/
-│   │   └── word_bank.json      # All game words with patterns and clues
-│   └── audio/                   # Sound effects and music (future)
+│   │   └── word_bank.json          100 words with hints and clues
+│   └── audio/                       for future sound effects
 ├── lib/
-│   ├── main.dart                # App entry point
-│   ├── screens/                 # Different game screens
-│   ├── models/                  # Data structures (words, levels, etc.)
-│   ├── managers/                # Game logic managers
-│   └── widgets/                 # Reusable UI components
-└── pubspec.yaml                 # Project dependencies
+│   ├── main.dart                    app entry point and splash screen
+│   ├── models/
+│   │   ├── word.dart                one word from the word bank
+│   │   └── level_config.dart        the 5 levels and their timing
+│   ├── managers/
+│   │   ├── word_bank.dart           loads and serves the words
+│   │   ├── game_manager.dart        picks the next word for a level
+│   │   └── progress_manager.dart    saves unlocks and best times
+│   └── screens/
+│       ├── main_menu_screen.dart    title and 4 buttons
+│       ├── level_selection_screen.dart  the 5 level cards
+│       └── game_screen.dart         the card grid and the gameplay
+├── test/
+│   └── widget_test.dart             checks the app reaches the main menu
+├── REDESIGN.md                      decisions, specification, bug record
+├── PROGRESS.md                      development progress and handover
+└── word_drop_documentation_1-7.md   the full design document
 ```
 
-## Design Reference
+## Running It
 
-See `word_drop_documentation_1-7.md` for complete game design specifications including:
-- Detailed gameplay mechanics
-- Level progression system
-- UI/UX specifications
-- Audio and visual effects plans
+```bash
+flutter pub get
+flutter run
+```
 
-## Next Steps
-
-1. ✅ Create project structure
-2. ⏳ Set up Flutter project
-3. ⏳ Build word bank JSON
-4. ⏳ Create basic UI screens
-5. ⏳ Implement falling word mechanics
-6. ⏳ Add scoring and level progression
-7. ⏳ Polish with audio/visual effects
+To run on a phone over Wi-Fi, and to read about 2 Windows build problems and
+their fixes, see the "Development Environment" section of `PROGRESS.md`.
 
 ---
 
-**Building with**: Claude (Anthropic AI) as pair programming partner
-**Learning Focus**: Flutter development, game mechanics, mobile optimization
+**Built with**: Claude (Anthropic AI) as a pair programming partner
+**Learning focus**: Flutter, game mechanics, mobile layout

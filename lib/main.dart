@@ -388,7 +388,7 @@ class _SplashScreenState extends State<SplashScreen>
                 const SizedBox(height: 12), // Space between title and tagline
                 // Tagline - small subtitle under the title
                 const Text(
-                  'Complete the words before they fall!',
+                  'Fill the gaps before the time ends.',
                   style: TextStyle(
                     fontSize: 16,
                     color: Color(0xCCFFFFFF), // White with 80% opacity

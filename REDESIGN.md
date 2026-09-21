@@ -2,17 +2,23 @@
 
 **Branch**: `redesign/timed-word-cards` (created from `master` at `75ea4d4`)
 **Started**: September 16, 2026
-**Status**: The new game screen is built. Decisions D1–D34 and the
-Specification are complete, and Plan steps 1 to 4 are done: all 7 build stages
-are tested on a real phone, and the game plays end to end. Next: Plan step 5
-(check every bug again).
+**Status**: The redesign is complete. Decisions D1–D34, the Specification, and
+Plan steps 1 to 6 are done: the game screen is rebuilt and tested on a real
+phone, every bug in the record is closed, and the documents describe the card
+design. Left: the final name (D34), then Plan step 7 (play all 5 levels, then
+merge to `master`).
 
-> **Resume here (next session):** **Plan step 4 is complete.** All 7 build
-> stages (4.1 to 4.7) and the height work of **Group I** are done and tested on
-> a real phone. The game plays end to end: cards, countdowns, matching, score,
-> lives, pause and the 3 overlays.
-> **Next: Plan step 5** — check every bug in the record again, and fix the ones
-> that still exist.
+> **Resume here (next session):** **Plan steps 1 to 6 are complete.** The game
+> screen is rebuilt and tested on a real phone, every bug in the record is
+> closed, and the documents describe the card design.
+>
+> **What is left:**
+> 1. **The final name (D34).** "Word Drop" describes falling words and is
+>    crowded in the stores. "Gap Race" was free on 2026-09-20.
+> 2. **Plan step 7:** play all 5 levels on a phone, then merge this branch into
+>    `master`.
+> 3. Before release: change `applicationId` away from `com.example`, and add a
+>    real signing config.
 
 ---
 
@@ -618,7 +624,19 @@ still fit. BUG-7 (unused duplicate logic) is still open.
    exist. BUG-4 (2 wrong hints), BUG-5 (the empty `assets/audio/` folder),
    BUG-6 (the failing widget test) and BUG-14 (the main menu overflows on a
    short screen) do not depend on the redesign, so they need a real fix.
-6. Update `README.md`, `PROGRESS.md`, `word_drop_documentation_1-7.md` (sections 1, 2.4, 5, 6) and the widget test.
+6. ~~Update `README.md`, `PROGRESS.md`, `word_drop_documentation_1-7.md`
+   (sections 1, 2.4, 5, 6) and the widget test.~~ **Done 2026-09-21, except
+   the final name.**
+   - The new tagline (D33) is in `main.dart` and `main_menu_screen.dart`, and
+     it shows on the phone.
+   - `README.md` rewritten for the card design.
+   - `PROGRESS.md` rewritten: the old falling-word stage history is replaced by
+     the redesign history, the measured heights, and the lessons from the bugs.
+   - `word_drop_documentation_1-7.md`: a warning box at the top says which
+     sections the redesign replaces, and sections 1.1, 2.4, 5 and 6 each carry
+     a note with the rule that applies today.
+   - The widget test was fixed in step 5 (BUG-6).
+   - **Left for later: the final name (D34).** "Word Drop" stays for now.
 7. Test the full game on mobile devices. Then merge to `master`.
 
 ---

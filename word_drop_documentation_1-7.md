@@ -1,10 +1,39 @@
 # Word Drop Game - Flutter Development Documentation
 
+> ## ⚠️ READ THIS FIRST — the presentation changed in September 2026
+>
+> This document describes the **first** design, where words fell from the top
+> of the screen. That does not work on a phone: the keyboard takes about half
+> of the screen height, so the fall area was too short, and the cards jumped
+> every time the keyboard opened or closed.
+>
+> **`REDESIGN.md` replaces the parts of this document that describe falling
+> words.** In the game today, each word sits on a card in a fixed 2 × 3 grid,
+> and each card counts down on its own.
+>
+> | Part of this document | State |
+> |-----------------------|-------|
+> | 1.1 Core gameplay | **Replaced** by REDESIGN.md D1 and S1 |
+> | 2.4 In-game interface | **Replaced** by REDESIGN.md S2 |
+> | 5. Game physics and timing | **Replaced** by REDESIGN.md S3, S5, S9 |
+> | 6.1 to 6.5 UI design | **Partly replaced.** The colours, the fonts and the overlays still apply. The falling motion does not. |
+> | Everything else (2.1, 2.2, 2.5 to 2.7, 3, 4, 7) | **Still correct** |
+>
+> The tagline is now **"Fill the gaps before the time ends."**
+
 ## 1. Game Overview & Concept
 
 ### 1.1 Core Gameplay Mechanics
 
-**Primary Objective**: Players must complete partially hidden words before they fall from the top of the screen to the bottom. Words "fall" with gravity-like animation from sky to ground.
+> **REPLACED.** See REDESIGN.md D1, S1 and S3. The rules below are the old
+> falling design. The scoring, the lives, the word lengths and the levels did
+> not change — only how a word appears on the screen.
+
+**Primary Objective (today)**: word cards appear on the screen with letters
+missing, and each card counts down. The player types the full word before that
+card's time ends.
+
+**Primary Objective (the old design)**: Players must complete partially hidden words before they fall from the top of the screen to the bottom. Words "fall" with gravity-like animation from sky to ground.
 
 **Input Method**: Players type the complete word using an on-screen keyboard or device keyboard. The game accepts input in real-time and checks for matches against currently falling words.
 
@@ -170,6 +199,20 @@ This foundation establishes the core experience that subsequent sections will bu
 4. **Ready to Play**: Direct to Level 1 with encouragement
 
 ### 2.4 In-Game Interface Layout
+
+> **REPLACED by REDESIGN.md S2.** The screen today has 4 areas, measured on a
+> 360 × 800 phone:
+>
+> | Area | Height | Contents |
+> |------|--------|----------|
+> | Header | ~55px | Level name in gold; SCORE, hearts and TIME in one row |
+> | Card grid | all that is left (~316px) | 2 × 3 = 6 card positions. It scrolls only on a screen too short for 6 cards, and 2 blinking arrows then show where the hidden cards are. |
+> | Input row | 63px | Text field, a "+" button, a Pause button |
+> | Keyboard | ~290px | Always open during play. Closing it pauses the game. |
+>
+> The SKY label, the GROUND label and the ground line are gone.
+
+**The old layout, for reference:**
 
 **Header Area (Top 15% of screen)**:
 
@@ -630,6 +673,31 @@ This progression system creates a balanced difficulty curve that challenges play
 
 ## 5. Game Physics & Timing
 
+> ## ⚠️ SECTION 5 IS REPLACED by REDESIGN.md S3, S5 and S9
+>
+> Nothing falls any more, so there is no physics. A card appears, it counts
+> down, and it leaves. The timing numbers did not change, only their names and
+> their meaning:
+>
+> | Old name | New name | What it means today |
+> |----------|----------|---------------------|
+> | `fallTime` | `cardTime` | how long the card stays: 30s on Level 1, down to 15s on Level 5 |
+> | `spawnDelay` | `newCardDelay` | how long until the next card: 5.0s on Level 1, down to 3.0s on Level 5 |
+>
+> The life of a card (REDESIGN.md S3):
+>
+> | Moment | Event |
+> |--------|-------|
+> | 0ms | the card appears and fades in over 300ms |
+> | 300ms | the countdown starts at `cardTime` |
+> | `cardTime` − 5.0s | the number and the bar turn amber |
+> | `cardTime` − 0.6s | the player loses 1 life; the card turns red and cannot be answered |
+> | `cardTime` | the card leaves and frees its grid position |
+>
+> The maximum is 6 cards. When the grid is full, the next card waits.
+>
+> The old text below is kept only as a record of the first design.
+
 ### 5.1 Word Drop Mechanics and Physics
 
 **Core Movement System**: Words appear at the top of the game area (the "SKY" zone) and descend vertically toward the bottom (the "GROUND" zone) with a smooth, linear animation at uniform velocity, matching the HTML prototype's constant speed without acceleration.
@@ -758,6 +826,29 @@ This section provides precise specifications for implementing responsive, engagi
 ---
 
 ## 6. User Interface Design
+
+> ## ⚠️ SECTION 6 IS PARTLY REPLACED
+>
+> **Still correct**: the colours (6.2), the fonts, the overlays, the
+> transitions (6.4) and the feedback colours (6.5).
+>
+> **Replaced by REDESIGN.md**:
+>
+> | Topic | Where the rule lives now |
+> |-------|--------------------------|
+> | In-game layout (6.1) | S2 — header, card grid, input row |
+> | The word card itself | S3 — hint, seconds number, clue, timer bar |
+> | Input handling (6.3) | S6 — the check starts at 6 characters, not 4 |
+> | The keyboard | D21 — it stays open; closing it pauses the game |
+> | Level start | D30 — "3, 2, 1, Go", also at every resume |
+>
+> **Two measured layout facts** to keep in mind when editing this screen:
+>
+> - The touch targets on the input row are **42px**, below the 48dp guide.
+>   Z3 tested them on a phone and reported that they are still easy to tap
+>   (REDESIGN.md I3). Test again with other players.
+> - The card grid needs **296px** for 3 rows. A phone with a logical height
+>   under about 860px has less than that, and the grid then scrolls.
 
 ### 6.1 Screen Layouts and Responsive Design
 

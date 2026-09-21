@@ -263,7 +263,7 @@ class _MainMenuScreenState extends State<MainMenuScreen>
                                   const SizedBox(height: 12),
 
                                   const Text(
-                                    'Complete the words before they fall!',
+                                    'Fill the gaps before the time ends.',
                                     textAlign: TextAlign.center,
                                     style: TextStyle(
                                       fontSize: 15,
