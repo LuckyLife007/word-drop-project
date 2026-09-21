@@ -18,6 +18,7 @@ import 'package:flutter/foundation.dart' show kIsWeb; // Tells web from mobile
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart'; // Needed for locking screen orientation
 import 'managers/word_bank.dart'; // Our word bank loader
+import 'managers/settings_manager.dart'; // Player preferences (sound, vibration)
 import 'screens/main_menu_screen.dart'; // The main menu screen we'll show after loading
 
 // ============================================================================
@@ -266,6 +267,17 @@ class _SplashScreenState extends State<SplashScreen>
     // 'await' pauses this function until loading completes,
     // but the rest of the app (including the animation) keeps running.
     await WordBank().loadWords();
+
+    // Load the player's saved preferences (sound, music, vibration).
+    //
+    // WHY HERE, ON THE SPLASH SCREEN?
+    // Reading storage is asynchronous, but a widget's build() method cannot
+    // wait for anything. If we read the values later, the first frame of a
+    // screen would show the defaults and then jump to the real values. Doing
+    // it here means every screen after this one reads instant, correct data.
+    //
+    // This read is small, so it adds no measurable time to the splash screen.
+    await SettingsManager().loadSettings();
 
     // Mark loading as complete so the UI can update
     // setState() tells Flutter "something changed, please redraw"

@@ -688,6 +688,8 @@ Check each bug again after the redesign. Set **Status** to one of:
 ### Features in the old design document that are not built
 
 For reference only. Decide in the open questions if they stay in scope:
-How to Play, Settings and About screens; audio; particles; haptics; the
-"3, 2, 1, Go" countdown; spawn fade-in; heart shake on life loss; the level
-info button; fall speed that changes with screen height (no longer applies).
+audio; spawn fade-in; heart shake on life loss; the level info button; fall
+speed that changes with screen height (no longer applies).
+
+**Built since this list was written (2026-09-21):** the How to Play, Settings
+and About screens; haptics; particles; the "3, 2, 1, Go" countdown.

@@ -23,10 +23,18 @@
 //   - Replaced all .withOpacity() calls with .withValues(alpha:)
 //     because .withOpacity() is deprecated in newer Flutter versions.
 //   - Wired Play button to navigate to LevelSelectionScreen.
+//   - Built How to Play, Settings and About. The "Coming Soon" snackbar and
+//     its helper are gone: every button now opens a real screen.
+//   - All 4 buttons share one _openScreen() helper, so the 300ms fade is
+//     defined once instead of four times.
 // ============================================================================
 
 import 'package:flutter/material.dart';
 import 'level_selection_screen.dart'; // The screen the Play button leads to
+import 'how_to_play_screen.dart'; // The rules screen
+import 'settings_screen.dart'; // Preferences and reset progress
+import 'about_screen.dart'; // Version and credits
+import '../managers/settings_manager.dart'; // For the button tap feedback
 
 // ============================================================================
 // MAIN MENU SCREEN WIDGET
@@ -124,55 +132,52 @@ class _MainMenuScreenState extends State<MainMenuScreen>
   /// Navigates to the Level Selection screen.
   /// Called when the player taps the "Play" button.
   void _onPlayPressed() {
-    // Navigator.of(context).push() adds a new screen on top of the current one.
-    // Unlike pushReplacement (used in the splash screen), push() keeps the
-    // Main Menu underneath - this means the player can tap the back arrow on
-    // the Level Selection screen to return here.
-    Navigator.of(context).push(
-      PageRouteBuilder(
-        // How long the transition animation takes (docs: 300ms for menus)
-        transitionDuration: const Duration(milliseconds: 300),
+    _openScreen(const LevelSelectionScreen());
+  }
 
-        // Which screen to navigate to
-        pageBuilder: (context, animation, secondaryAnimation) =>
-            const LevelSelectionScreen(),
-
-        // FadeTransition matches Section 6.4: "FadeTransition (300ms) for menus"
-        transitionsBuilder: (context, animation, secondaryAnimation, child) {
-          return FadeTransition(opacity: animation, child: child);
-        },
-      ),
-    );
+  /// Opens the How to Play screen.
+  /// Called when the player taps the "How to Play" button.
+  void _onHowToPlayPressed() {
+    _openScreen(const HowToPlayScreen());
   }
 
   /// Opens the Settings screen.
   /// Called when the player taps the "Settings" button.
   void _onSettingsPressed() {
-    // TODO: Navigate to SettingsScreen once it's built.
-    _showComingSoon('Settings');
-  }
-
-  /// Opens the How to Play overlay.
-  /// Called when the player taps the "How to Play" button.
-  void _onHowToPlayPressed() {
-    // TODO: Show HowToPlayOverlay once it's built.
-    _showComingSoon('How to Play');
+    _openScreen(const SettingsScreen());
   }
 
   /// Opens the About screen.
   /// Called when the player taps the "About" button.
   void _onAboutPressed() {
-    // TODO: Navigate to AboutScreen once it's built.
-    _showComingSoon('About');
+    _openScreen(const AboutScreen());
   }
 
-  /// Helper to show a temporary "Coming Soon" message for unbuilt screens.
-  void _showComingSoon(String featureName) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('$featureName - Coming Soon!'),
-        duration: const Duration(seconds: 2),
-        backgroundColor: const Color(0xFF764ba2),
+  /// Opens [screen] with the standard 300ms fade.
+  ///
+  /// WHY ONE HELPER FOR ALL 4 BUTTONS?
+  /// Every menu button used to repeat the same 14 lines of PageRouteBuilder.
+  /// One helper means the transition is defined in 1 place, so every screen
+  /// arrives the same way and a change never has to be made 4 times.
+  ///
+  /// WHY push() AND NOT pushReplacement()?
+  /// push() adds the new screen on top and keeps the Main Menu underneath.
+  /// That is what lets the back arrow on the new screen return here. The
+  /// splash screen uses pushReplacement, because the player must never get
+  /// back to a loading screen.
+  void _openScreen(Widget screen) {
+    // A light buzz confirms the press. It does nothing when the player has
+    // turned Vibration off in Settings.
+    SettingsManager().lightTap();
+
+    Navigator.of(context).push(
+      PageRouteBuilder(
+        // Section 6.4: "FadeTransition (300ms) for menus".
+        transitionDuration: const Duration(milliseconds: 300),
+        pageBuilder: (context, animation, secondaryAnimation) => screen,
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          return FadeTransition(opacity: animation, child: child);
+        },
       ),
     );
   }

@@ -41,6 +41,8 @@ import 'dart:async'; // For Timer (used by the stopwatch display updater)
 import 'package:flutter/material.dart';
 import '../managers/game_manager.dart'; // Provides the words to display
 import '../managers/progress_manager.dart'; // Saves best time + unlocks next level
+import '../managers/settings_manager.dart'; // Vibration setting + haptic helpers
+import '../widgets/particle_burst.dart'; // The green and red dot showers
 import '../models/level_config.dart';
 
 // ============================================================================
@@ -102,6 +104,30 @@ const double kWarningSeconds = 5.0;
 ///   2. `stop()` and `forward()`, which pause and resume from the same value
 ///      (REDESIGN.md D22 and D32).
 ///   3. One status listener that fires when the card time ends.
+/// One particle burst that is playing on the grid.
+///
+/// It holds no controller of its own. The ParticleBurst widget owns the
+/// animation, and this object only records WHERE the burst is, WHAT colour
+/// it is, and WHICH burst it is. That keeps the game screen free of a second
+/// set of controllers to dispose.
+class _Burst {
+  /// Unique number for this burst. It is also the random seed, so 2 bursts
+  /// never draw the same pattern of dots.
+  final int id;
+
+  /// The grid position the burst plays in, 0 to 5.
+  final int gridIndex;
+
+  /// Green for a correct word, red for a failed card.
+  final Color colour;
+
+  const _Burst({
+    required this.id,
+    required this.gridIndex,
+    required this.colour,
+  });
+}
+
 class TimedCard {
   /// Unique id for this card instance. Used to find and remove it.
   final String id;
@@ -249,6 +275,26 @@ class _GameScreenState extends State<GameScreen>
   /// The list order does not matter: each card knows its own gridIndex.
   final List<TimedCard> _cards = [];
 
+  /// The particle bursts playing in each grid position. One entry per place.
+  ///
+  /// WHY PER POSITION, AND NOT A FIELD ON TimedCard?
+  /// A burst outlives its card. The green flash removes the card after 500ms,
+  /// but the burst runs for 700ms, and the empty place may already hold a new
+  /// card by then. A burst therefore belongs to a grid POSITION, not to a
+  /// card.
+  ///
+  /// WHY ValueNotifier, AND NOT A PLAIN LIST WITH setState?
+  /// MEASURED ON THE DEVICE (2026-09-21). The first version kept one list and
+  /// called setState to add and to remove each burst. setState rebuilds the
+  /// WHOLE screen, so every burst rebuilt all 6 cards two times. The frame
+  /// rate fell from 58-60 to 52-58, and the worst frame rose from 19ms to
+  /// 50ms. A ValueNotifier for each place means a burst rebuilds only the one
+  /// cell it plays in, and the other 5 cards are never touched.
+  late final List<ValueNotifier<List<_Burst>>> _cellBursts;
+
+  /// Counter used to build a unique id for each burst.
+  int _burstCounter = 0;
+
   /// Counter used to build a unique id for each card.
   int _cardSerial = 0;
 
@@ -376,6 +422,14 @@ class _GameScreenState extends State<GameScreen>
     _textController = TextEditingController();
     _inputFocusNode = FocusNode();
 
+    // One burst list for each of the 6 grid places. They are made here and
+    // never replaced, so the ValueListenableBuilder in each cell keeps the
+    // same listenable for the life of the screen.
+    _cellBursts = List<ValueNotifier<List<_Burst>>>.generate(
+      kMaxCards,
+      (_) => ValueNotifier<List<_Burst>>(const []),
+    );
+
     // 150ms per direction × 2 = 300ms total gold-flash cycle (Section 6.5).
     _scoreHighlightController = AnimationController(
       vsync: this,
@@ -459,6 +513,13 @@ class _GameScreenState extends State<GameScreen>
     // Stop watching the app lifecycle and the keyboard focus (stage 4.6).
     WidgetsBinding.instance.removeObserver(this);
     _inputFocusNode.removeListener(_onFocusChanged);
+
+    // A ValueNotifier holds listeners, so it must be disposed like a
+    // controller. The ParticleBurst widgets are torn down by Flutter before
+    // this runs, so no listener is left when we get here.
+    for (final notifier in _cellBursts) {
+      notifier.dispose();
+    }
 
     _arrowBlink.dispose();
     _gridScroll.dispose();
@@ -707,7 +768,21 @@ class _GameScreenState extends State<GameScreen>
       if (_lives > 0) _lives--;
     });
 
-    if (_lives <= 0) _handleGameOver();
+    // A red shower of dots marks the failure. The card may be off screen on a
+    // small phone, so this is not the only signal: the heart count and the
+    // buzz both change too.
+    _startBurst(card.gridIndex, const Color(0xFFD32F2F));
+
+    if (_lives <= 0) {
+      // The game is over. _handleGameOver() sends its own double buzz, so we
+      // must not also send the single "lost a life" buzz here. Two overlapping
+      // patterns feel like one long rumble and lose their meaning.
+      _handleGameOver();
+    } else {
+      // A heavy buzz marks the lost life. The player is usually looking at a
+      // different card, so the buzz is often the only signal they get.
+      SettingsManager().failure();
+    }
   }
 
   /// Removes a card from the grid and frees its position.
@@ -799,6 +874,14 @@ class _GameScreenState extends State<GameScreen>
     if (_isLevelComplete) return;
 
     _isGameOver = true;
+
+    // Two heavy buzzes mark the end of the game.
+    //
+    // WHY unawaited()?
+    // gameOver() waits 120ms between its 2 buzzes. Waiting for that here
+    // would hold up the overlay, and the player would see the screen freeze.
+    // The buzz and the overlay must run together.
+    unawaited(SettingsManager().gameOver());
 
     // Stop the new-card timer — no more new cards.
     _newCardTimer?.cancel();
@@ -1084,6 +1167,15 @@ class _GameScreenState extends State<GameScreen>
       _wordsCompleted++;
     });
     GameManager().recordCorrectWord();
+
+    // A medium buzz confirms the correct word. The player is looking at the
+    // keyboard, not at the card, so the buzz reaches them before the green
+    // flash does.
+    SettingsManager().success();
+
+    // A green shower of dots marks the win. It is the signal the player sees
+    // from the corner of the eye while they read the next clue.
+    _startBurst(card.gridIndex, const Color(0xFF4CAF50));
 
     // 3. Gold highlight on the score (Section 6.5, 300ms).
     _scoreHighlightController.reset();
@@ -2125,13 +2217,91 @@ class _GameScreenState extends State<GameScreen>
     );
   }
 
-  /// Builds one grid position: the card in it, or an empty box.
+  /// Builds one grid position: the card in it, or an empty box, plus any
+  /// particle burst that belongs to this position.
   ///
   /// [index] — the position number, 0 to 5.
+  ///
+  /// WHY THE BURST IS INSIDE THE CELL
+  /// The grid is built from Expanded widgets, so this code never learns the
+  /// pixel position of a cell. Putting the burst in the cell itself means the
+  /// dots start from the right place on every screen size, with no
+  /// measurement and no hard-coded numbers.
   Widget _buildGridPosition(int index) {
     final TimedCard? card = _cardAt(index);
-    if (card == null) return _buildEmptySlot();
-    return _buildTimedCard(card);
+    final Widget base = card == null ? _buildEmptySlot() : _buildTimedCard(card);
+
+    return Stack(
+      // The dots must not change the size of the cell, so the card alone
+      // decides it. Without this, an oversized burst would stretch the row.
+      fit: StackFit.passthrough,
+      children: [
+        base,
+
+        // Only this builder rebuilds when a burst starts or ends. The card
+        // above it is untouched, and so are the other 5 cells.
+        Positioned.fill(
+          child: ValueListenableBuilder<List<_Burst>>(
+            valueListenable: _cellBursts[index],
+            builder: (context, bursts, _) {
+              // The usual case. An empty SizedBox costs nothing to build and
+              // nothing to paint.
+              if (bursts.isEmpty) return const SizedBox.shrink();
+
+              return Stack(
+                children: [
+                  for (final b in bursts)
+                    Positioned.fill(
+                      child: ParticleBurst(
+                        // The key ties the widget to this exact burst.
+                        // Without it, Flutter could reuse the State of a
+                        // finished burst for a new one, and the new burst
+                        // would start part-way through.
+                        key: ValueKey<int>(b.id),
+                        colour: b.colour,
+                        seed: b.id,
+                        onComplete: () => _removeBurst(b),
+                      ),
+                    ),
+                ],
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ==========================================================================
+  // PARTICLE BURSTS
+  // ==========================================================================
+
+  /// Starts a burst in grid position [gridIndex].
+  ///
+  /// [colour] is green for a correct word and red for a failed card.
+  ///
+  /// A ValueNotifier only tells its listeners when the value is a DIFFERENT
+  /// object, so we must build a new list. Adding to the existing list in
+  /// place would change nothing on screen.
+  void _startBurst(int gridIndex, Color colour) {
+    final notifier = _cellBursts[gridIndex];
+    notifier.value = [
+      ...notifier.value,
+      _Burst(id: _burstCounter++, gridIndex: gridIndex, colour: colour),
+    ];
+  }
+
+  /// Drops a finished burst. The ParticleBurst widget calls this itself.
+  void _removeBurst(_Burst burst) {
+    // 'mounted' matters here: the burst finishes on a timer, and the player
+    // can leave the screen during those 700ms.
+    if (!mounted) return;
+
+    final notifier = _cellBursts[burst.gridIndex];
+    notifier.value = [
+      for (final b in notifier.value)
+        if (b.id != burst.id) b,
+    ];
   }
 
   // ==========================================================================

@@ -175,8 +175,26 @@ metaspace, which is enough for this project.
 - Full-screen sky gradient background (`#667eea` → `#764ba2`)
 - Entrance animation: title slides in from above, buttons fade in after
 - Buttons: PLAY (primary, white pill), How to Play / Settings / About (secondary, outlined)
-- PLAY navigates to Level Selection with a FadeTransition (300ms)
-- How to Play / Settings / About show "Coming Soon" snackbar (screens not yet built)
+- All 4 buttons navigate with a FadeTransition (300ms) through one
+  `_openScreen()` helper. The "Coming Soon" snackbar is gone.
+- Each button press calls `SettingsManager().lightTap()` for haptic feedback
+
+#### `how_to_play_screen.dart`
+- 9 sections that describe the **card** design, taken from REDESIGN.md S1–S9
+- A colour key with real colour chips: blue, amber, red, green
+- Scrollable, because the rules do not fit a 640px screen
+
+#### `settings_screen.dart`
+- Audio group: Sound effects and Background music. **Both disabled**, with a
+  note, because `assets/audio/` is empty and there is no audio package. To
+  enable: delete `enabled: false` on those 2 rows and remove the note.
+- Feedback group: Vibration. Fully working.
+- Data group: Reset progress, with a confirmation dialog. Calls
+  `ProgressManager().resetAllProgress()`.
+
+#### `about_screen.dart`
+- Title, tagline, version pill, what the game is, a facts table, credits
+- `kAppVersion` in this file must match `version:` in pubspec.yaml
 
 #### `level_selection_screen.dart`
 - Shows all 5 levels as scrollable cards
@@ -362,17 +380,110 @@ All 15 bugs in the REDESIGN.md record are closed. The ones worth remembering:
   refuses anything that starts with `com.example`.
 - **Add a real signing config.** The release build still uses the debug keys.
 
-### 🔲 The 3 screens that are not built
-- How to Play overlay (tutorial, from the Main Menu)
-- Settings screen (audio toggles, reset progress — `resetAllProgress()` is
-  ready and waiting)
-- About screen (credits, version)
+### ✅ The 3 menu screens are built
+- How to Play, Settings and About all open from the Main Menu.
+- `lib/managers/settings_manager.dart` is new: it saves the 3 preferences and
+  holds the haptic helpers.
+- 6 widget tests cover the 3 screens and the menu wiring.
+
+#### `lib/widgets/particle_burst.dart` ✅
+- A shower of 16 dots that flies out from the middle of a card, 700ms long
+- GREEN for a correct word, RED for a failed card
+- Drawn by a `CustomPainter`, so 16 dots cost about the same as 1 widget
+- No asset file, so it adds nothing to the APK
+- Each burst uses its own random seed, so no 2 bursts look the same
+- Each grid place owns a `ValueNotifier<List<_Burst>>`. A burst therefore
+  rebuilds 1 cell, not the whole screen. **Do not go back to `setState`**:
+  measured on the device, that rebuilt all 6 cards 2 times for each burst.
 
 ### 🔲 Polish (later)
-- Sound effects and background music (`audioplayers` package)
-- Particle effects for a correct word and for a failed card
-- Haptic feedback
+- **Sound effects and background music.** BLOCKED: `assets/audio/` holds only
+  a `.gitkeep`, and pubspec.yaml lists no audio package. The work is not code
+  first, it is files first. When the files exist: add `audioplayers`, build an
+  `AudioManager` that reads `SettingsManager().soundEnabled` and
+  `.musicEnabled`, then enable the 2 disabled rows in the Settings screen.
 - A short animation when a card takes a free position
+
+### ⚠️ Frame rate: what we saw on 2026-09-21, and what to do next
+
+Test phone: Redmi 23106RN0DA, Android 13, 720x1600, 60Hz screen.
+Every number below comes from a **debug** build, which is the slow one.
+
+#### Rule 1: do not use `dumpsys gfxinfo` on this app
+
+It measures the Android view system (HWUI). Flutter draws into a
+`SurfaceView` and goes around HWUI, so the numbers describe an almost empty
+view tree, not the game. It reported "25.19% janky frames", and a 40-second
+run of the real game recorded only 17 frames in it. Both numbers are
+meaningless here.
+
+Use one of these instead:
+
+- `flutter run --profile` with DevTools. This is the correct tool.
+- A quick check on the device, reading the Flutter surface counter:
+  `adb logcat -d | grep BufferQueueProducer | grep word_drop`
+
+#### Rule 2: the phone itself changes the result
+
+Measurements taken the same day, same phone, same build type:
+
+| When | Build | Battery | CPU | Frames per second | Worst frame |
+|------|-------|---------|-----|-------------------|-------------|
+| Early session | no particles | 44% | cool | **58-60** | 17-19 ms |
+| Late session  | particles OFF | 29% | 47.5°C | **39-57**, about 44 median | 48-67 ms |
+| Late session  | particles ON  | 29% | 47.5°C | **37-46**, about 40 median | 47-84 ms |
+
+Read the 2 late rows against each other, not against the early row.
+
+- The same code with no particles fell from 58-60 fps to about 44 fps with
+  **no code change at all**. That drop belongs to the phone, not to the app.
+- `dumpsys thermalservice` reported status 0 (no throttling) and
+  `settings get global low_power` returned 0. So this is vendor behaviour
+  that Android does not report. Do not trust those 2 checks to tell you the
+  phone is healthy.
+- The honest cost of the particles is the difference between the 2 late
+  rows: about **4 fps, or 10%, in a debug build**.
+
+#### The test to run next, on a rested phone
+
+Do this when the battery is above 80% and the phone has been idle and cool
+for at least 30 minutes. Do not run it at the end of a long session.
+
+1. Charge to 80% or more. Check: `adb shell dumpsys battery | grep level`.
+2. Check the phone is cool, under about 35°C:
+   `adb shell dumpsys thermalservice | grep Temperature`
+3. Build the release APK. A debug build is 3 to 10 times slower on the UI
+   thread, so it cannot answer the question:
+   `flutter build apk --release`
+4. Install it: `adb install -r build/app/outputs/flutter-apk/app-release.apk`
+5. Play Level 1 for 60 seconds with a full grid of 6 cards, and let some
+   cards fail so the red bursts run.
+6. Read the frame rate:
+   `adb logcat -d | grep BufferQueueProducer | grep word_drop`
+7. Repeat steps 3 to 6 with the 2 `_startBurst(...)` calls in
+   `game_screen.dart` commented out. That is the only fair way to price the
+   particles: measure both builds within a few minutes of each other, at the
+   same battery level and the same temperature.
+8. Write the result into this table. Then test Level 5, which is the worst
+   case: 15-second cards and 7 lives, so more cards fail and more bursts run
+   at the same time.
+
+**What to do with the answer.** If the release build holds above 55 fps, the
+particles are free and no work is needed. If it does not, the known costs to
+attack, in order, are in `lib/screens/game_screen.dart`:
+
+1. `_buildTimedCard()` rebuilds the hint text and the clue text on every
+   animation frame. Text layout is the most costly step in a Flutter frame.
+   Move the unchanging parts into the `child:` parameter of the
+   `AnimatedBuilder`, which Flutter builds once and reuses.
+2. There is no `RepaintBoundary` around a card, so a repaint of 1 card can
+   force the paint of the whole grid.
+3. The card draws a blurred `boxShadow` and clips with `Clip.antiAlias` on
+   every frame.
+
+None of these were worth doing on 2026-09-21, because the app held 58-60 fps
+on a healthy phone. Do not start this work without a measurement that shows
+a real problem.
 
 ---
 
