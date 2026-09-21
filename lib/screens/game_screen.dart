@@ -1280,9 +1280,20 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   // ==========================================================================
 
   /// Header bar: level name (gold) above a row of [Score | â¤ï¸ Hearts | Timer].
+  /// HEIGHT (REDESIGN.md open question I1, lever 1, and I2):
+  ///   Start:  84px — 20px padding, gold level name (17px), 8px gap,
+  ///           stat row (37px), 1px border.
+  ///   Step 1: 52px — the level name was removed.
+  ///   Step 2 (asked by Z3): the level name comes BACK, but everything is
+  ///           smaller: name 13 → 11px, gap under the name 8 → 2px, stat
+  ///           label 10 → 9px, gap inside the stat block 2 → 1px, stat value
+  ///           17 → 15px, outer padding 6 → 5px. About 60px.
+  ///
+  /// The grid needs 296px and still has more than that, so the name costs
+  /// the player nothing.
   Widget _buildHeader() {
     return Container(
-      padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+      padding: const EdgeInsets.fromLTRB(16, 5, 16, 5),
       decoration: BoxDecoration(
         border: Border(
           bottom: BorderSide(
@@ -1294,23 +1305,25 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Level name in gold (Section 6.2: #FFD700)
+          // LEVEL NAME in gold (Section 6.2: #FFD700).
+          // Smaller than before: 11px with a 2px gap under it.
           Text(
             widget.level.displayLabel, // e.g. "Level 1: Strolling"
             style: const TextStyle(
-              fontSize: 13,
+              fontSize: 11,
               fontWeight: FontWeight.w600,
               color: Color(0xFFFFD700),
-              letterSpacing: 1.2,
+              letterSpacing: 1.0,
+              height: 1.1, // tight line box, so the name costs little height
             ),
           ),
 
-          const SizedBox(height: 8),
+          const SizedBox(height: 2),
 
           Row(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              // SCORE (left) â€” wrapped in AnimatedBuilder for the gold highlight
+              // SCORE (left) — wrapped in AnimatedBuilder for the gold highlight
               Expanded(
                 child: _buildStatBlock(
                   label: 'SCORE',
@@ -1320,7 +1333,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                 ),
               ),
 
-              // LIVES HEARTS (centre â€” flex: 2 gives more room for 7 hearts)
+              // LIVES HEARTS (centre — flex: 2 gives more room for 7 hearts)
               Expanded(
                 flex: 2,
                 child: Center(child: _buildLivesHearts()),
@@ -1354,12 +1367,17 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     AnimationController? highlightController,
   }) {
     // Value text color: white normally, lerps to gold while highlight plays.
+    //
+    // HEIGHT: the value was 17px with a 2px gap under a 10px label.
+    // It is now 15px with a 1px gap under a 9px label, and both lines use a
+    // tight line box (height: 1.1). This is REDESIGN.md I1, asked by Z3.
     Widget valueText(Color color) => Text(
           value,
           style: TextStyle(
-            fontSize: 17,
+            fontSize: 15,
             fontWeight: FontWeight.bold,
             color: color,
+            height: 1.1,
           ),
         );
 
@@ -1370,13 +1388,14 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
         Text(
           label,
           style: TextStyle(
-            fontSize: 10,
+            fontSize: 9,
             fontWeight: FontWeight.w500,
             color: Colors.white.withValues(alpha: 0.60),
-            letterSpacing: 1.5,
+            letterSpacing: 1.4,
+            height: 1.1,
           ),
         ),
-        const SizedBox(height: 2),
+        const SizedBox(height: 1),
         // Wrap in AnimatedBuilder only when a highlight controller is provided.
         // The TIME stat uses this widget too and has no highlight animation.
         if (highlightController != null)
@@ -1521,9 +1540,19 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   ///   - autofocus: true (keyboard opens immediately)
   ///   - TextCapitalization.characters (forces uppercase to match word bank)
   ///   - No autocorrect / no suggestions (they interfere with gameplay)
+  /// HEIGHT (REDESIGN.md open question I1, lever 2):
+  ///   Step 1 (2026-09-21): 78px → 68px. Padding 12/14 → 8/10, buttons
+  ///   52px → 48px, icons 26 → 24, field text 20 → 19, inner padding 14 → 11.
+  ///   Step 2 (2026-09-21, asked by Z3): 68px → about 57px. Field text
+  ///   19 → 17, hint 15 → 14, inner padding 11 → 7, outer padding 8/10 → 6/8,
+  ///   buttons 48px → 42px, icons 24 → 22.
+  ///
+  /// WARNING: 42px is below the Android guide of 48dp for a touch target.
+  /// Test the "+" and Pause buttons on a phone. Raise the value again if they
+  /// are hard to hit during play (REDESIGN.md I3).
   Widget _buildInputArea() {
     return Container(
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+      padding: const EdgeInsets.fromLTRB(12, 6, 12, 8),
       decoration: BoxDecoration(
         color: Colors.black.withValues(alpha: 0.18),
         border: Border(
@@ -1560,7 +1589,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                 onChanged: _onInputChanged,
                 onSubmitted: _onInputSubmitted,
                 style: const TextStyle(
-                  fontSize: 20,
+                  fontSize: 17,
                   fontWeight: FontWeight.bold,
                   color: Color(0xFF333333),
                   letterSpacing: 2.5,
@@ -1568,7 +1597,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                 decoration: InputDecoration(
                   hintText: 'Type the word...',
                   hintStyle: TextStyle(
-                    fontSize: 15,
+                    fontSize: 14,
                     color: Colors.grey.withValues(alpha: 0.55),
                     fontWeight: FontWeight.normal,
                     letterSpacing: 0.5,
@@ -1576,7 +1605,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                   border: InputBorder.none,
                   contentPadding: const EdgeInsets.symmetric(
                     horizontal: 20,
-                    vertical: 14,
+                    vertical: 7,
                   ),
                 ),
               ),
@@ -1611,11 +1640,11 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                 color: _canAddCard
                     ? Colors.white
                     : Colors.white.withValues(alpha: 0.35),
-                size: 26,
+                size: 22,
               ),
               tooltip: 'Add a card now',
-              constraints: const BoxConstraints(minWidth: 52, minHeight: 52),
-              padding: const EdgeInsets.all(12),
+              constraints: const BoxConstraints(minWidth: 42, minHeight: 42),
+              padding: const EdgeInsets.all(8),
             ),
           ),
 
@@ -1636,11 +1665,11 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
               icon: const Icon(
                 Icons.pause_rounded,
                 color: Colors.white,
-                size: 26,
+                size: 22,
               ),
               tooltip: 'Pause Game',
-              constraints: const BoxConstraints(minWidth: 52, minHeight: 52),
-              padding: const EdgeInsets.all(12),
+              constraints: const BoxConstraints(minWidth: 42, minHeight: 42),
+              padding: const EdgeInsets.all(8),
             ),
           ),
         ],

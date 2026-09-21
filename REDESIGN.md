@@ -7,11 +7,10 @@ Plan steps 1 to 3 are done, and **stage 4.1 (static layout) is built and tested
 on a real phone**. Next: open question I1 (make the sections shorter), then
 stage 4.2.
 
-> **Resume here (next session):** Plan steps 1 to 3 and **stage 4.1** are done,
-> and stage 4.1 is tested on a real phone. **Start with open question I1:**
-> make the sections shorter so 3 card rows fit with the keyboard open (the grid
-> is 30px too tall; see the measured table in the Decisions part). Then
-> continue with **stage 4.2**: one card with a real countdown.
+> **Resume here (next session):** Plan steps 1 to 3, **stage 4.1** and the
+> height work of **Group I** are done and tested on a real phone. All 6 card
+> positions fit with the keyboard open. **Next: stage 4.2** — one card with a
+> real countdown (S3).
 
 ---
 
@@ -152,6 +151,36 @@ The card renders at exactly **88px**, as `kCardHeight` sets.
 padding (16px) = **296px**. The phone gives 266px. **The grid is 30px too
 tall.** The screenshots show this: 2 full rows and most of the third row.
 
+**Result after levers 1 and 2 (measured 2026-09-21, same phone, 3 steps):**
+
+| Part | Start | Step 1 | Step 2 | Step 3 (final) |
+|------|-------|--------|--------|----------------|
+| Header | 84px | 52px (no level name) | 52px | **~55px, level name back** |
+| Input row | 78px | 68px | **63px** | 63px |
+| Free height for the grid | 266px | 314px | 319px | **~316px** |
+
+The grid needs 296px, so **all 6 positions now fit with the keyboard open**.
+Scrolling (D23) and the arrows (D28) stay in the design for phones that are
+shorter than this one.
+
+What each step changed:
+
+- **Step 1** — header: the gold level-name line and its 8px gap removed,
+  padding 10 → 6. Input row: padding 12/14 → 8/10, buttons 52 → 48px,
+  icons 26 → 24, field text 20 → 19, inner padding 14 → 11.
+- **Step 2** — input row only: field text 19 → 17, hint 15 → 14, inner padding
+  11 → 7, outer padding 8/10 → 6/8, buttons 48 → 42px, icons 24 → 22.
+  **Z3 tested the 42px buttons on the phone and reported that they are still
+  easy to tap**, so the value stays (see I3).
+- **Step 3** — the level name comes back at 11px with a 2px gap; stat labels
+  10 → 9px, gap inside a stat block 2 → 1px, numbers 17 → 15px, header padding
+  6 → 5px. The name, the labels and the numbers use a tight line box
+  (`height: 1.1`), which removes the empty space above and below the letters.
+
+**The Material text field has a minimum height of its own.** It stays about
+44px even with 7px of inner padding, so more padding cuts do not make the input
+row shorter. Only a different field style would.
+
 **Where 30px can come from (open question I1):**
 
 | Lever | Saving | Cost |
@@ -260,14 +289,27 @@ We answer these one group at a time. Move each answer to **Decisions**.
 - **I3.** How small may the `[+]` and Pause buttons become? They are 52px now.
   The Android guide asks for 48dp of touch target.
 
+**Answers, 2026-09-21 (all closed):**
+
+- **I1 → Done in 3 steps** (see the table in the Decisions part). Header
+  84px → ~55px, input row 78px → 63px, so the free height for the grid goes
+  from 266px to ~316px. The card height (88px), the 3-line clue, the grid
+  padding and the gap did **not** change, so no text is hidden.
+- **I2 → The level name stays on the game screen.** It was removed in step 1
+  and brought back in step 3 at 11px. Z3 asked for it back.
+- **I3 → The buttons are 42px.** Z3 tested them on the phone and reported that
+  they are still easy to tap. This is below the Android guide of 48dp, so test
+  it again with other players or on a smaller phone.
+- **I4 → Closed.** The header is not too plain, because the level name is back.
+
 ### Group G — Text and documents
 
 - ~~G1 (tagline)~~ → Decided: D33
 - ~~G3 (game name)~~ → Decided: D34 (keep "Word Drop" for now; decide at Plan step 6)
 - (G2 moved to the Plan, step 6.)
 
-**Group I is open** (section heights, from the device test on 2026-09-20).
-All the other questions are closed.
+**All open questions are closed**, including Group I (section heights), which
+was answered on the phone on 2026-09-21.
 
 ---
 
