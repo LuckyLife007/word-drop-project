@@ -288,6 +288,17 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   /// Counter used to build a unique id for each card.
   int _cardSerial = 0;
 
+  /// Controls the scroll position of the card grid.
+  ///
+  /// The grid scrolls only when the screen is too short for 6 full cards
+  /// (D20). We keep the controller so the code can read the scroll offset and
+  /// work out which cards are outside the visible area (D28).
+  final ScrollController _gridScroll = ScrollController();
+
+  /// Drives the blinking of the 2 arrows (REDESIGN.md D28).
+  /// It repeats up and down over 1000ms for as long as the screen lives.
+  late AnimationController _arrowBlink;
+
   /// True while one card waits for a free grid position (REDESIGN.md D16).
   ///
   /// The interval stops while a card waits, so only 1 card can wait. The
@@ -410,6 +421,20 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       duration: const Duration(milliseconds: 500),
     );
 
+    // The 2 arrows blink with a 1000ms cycle for as long as cards are outside
+    // the visible area (REDESIGN.md D28). The controller runs all the time;
+    // the arrows themselves only appear when cards are hidden.
+    _arrowBlink = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1000),
+    )..repeat(reverse: true);
+
+    // Rebuild when the player scrolls, so the arrows appear and disappear at
+    // the right moment.
+    _gridScroll.addListener(() {
+      if (mounted) setState(() {});
+    });
+
     // STAGE 4.3 — start the level: one card at once, then one every
     // newCardDelay (REDESIGN.md S5, D11).
     //
@@ -444,6 +469,9 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       card.dispose();
     }
     _cards.clear();
+
+    _arrowBlink.dispose();
+    _gridScroll.dispose();
 
     _scoreHighlightController.dispose();
     _overlayController.dispose();
@@ -1040,8 +1068,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   /// Mirrors the format used by ProgressManager.getFormattedBestTime() so
   /// time values are displayed consistently across the app.
   String _formatTime(int ms) {
-    final int totalSeconds =
-        ms ~/ 1000; // integer division — drops sub-seconds
+    final int totalSeconds = ms ~/ 1000; // integer division — drops sub-seconds
     final int minutes = totalSeconds ~/ 60;
     final int seconds = totalSeconds % 60;
     // padLeft(2, '0') ensures "1:05" not "1:5".
@@ -1900,7 +1927,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   /// open. On those phones the grid scrolls (D20).
   ///
   /// The player scrolls with a finger. The grid NEVER scrolls by itself (D23).
-  /// Stage 4.5 adds the 2 blinking arrows that show hidden cards (D28).
   ///
   /// POSITIONS (S4):
   /// The 6 positions are numbered 0 to 5 in reading order:
@@ -1909,10 +1935,36 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   ///   4 = bottom-left   5 = bottom-right
   /// A card holds its position until it is removed. Cards never move (D17).
   ///
-  /// STAGE 4.1 shows an empty box in every position, so we can measure the
-  /// real layout on a device. Stage 4.2 puts a real card in position 0.
+  /// STAGE 4.5 adds the 2 blinking arrows on top of the grid. They show the
+  /// direction of cards that are outside the visible area (D28).
   Widget _buildCardGrid() {
+    // LayoutBuilder gives the real height of the grid area, which the arrow
+    // code needs to work out what the player can see.
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return Stack(
+          children: [
+            // Positioned.fill is important. A plain child of a Stack gets
+            // LOOSE constraints, and a SingleChildScrollView with loose
+            // constraints grows to its content height instead of the height
+            // of the screen area. It then stops scrolling, and the lower rows
+            // are simply cut off. Positioned.fill gives it the tight height it
+            // needs to scroll.
+            Positioned.fill(child: _buildGridScrollView()),
+
+            // The 2 arrows sit ON TOP of the grid, so they never take space
+            // away from the cards.
+            ..._buildHiddenCardArrows(constraints.maxHeight),
+          ],
+        );
+      },
+    );
+  }
+
+  /// The scrolling part of the grid: 3 rows of 2 positions.
+  Widget _buildGridScrollView() {
     return SingleChildScrollView(
+      controller: _gridScroll,
       // The physics let the player scroll even when all 6 cards fit, which
       // keeps the feel the same on every screen size.
       physics: const AlwaysScrollableScrollPhysics(),
@@ -1947,6 +1999,124 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     final TimedCard? card = _cardAt(index);
     if (card == null) return _buildEmptySlot();
     return _buildTimedCard(card);
+  }
+
+  // ==========================================================================
+  // HIDDEN-CARD ARROWS  (Stage 4.5 — REDESIGN.md D23, D28)
+  // ==========================================================================
+
+  /// Builds the up and down arrows that show cards outside the visible area.
+  ///
+  /// RULES (D28):
+  ///   - The up arrow shows when cards sit above the visible area, and the
+  ///     down arrow when they sit below. Both can show at the same time.
+  ///   - They blink with a 1000ms cycle for as long as cards are hidden.
+  ///   - They show the DIRECTION only. They show no number.
+  ///   - White normally. Amber when a hidden card is in its last 5 seconds
+  ///     (D25), and red while a hidden card shows its red flash.
+  ///
+  /// WHY THIS IS NEEDED:
+  /// Scrolling is manual only, and a hidden card keeps counting down (D23).
+  /// Without the arrows the player could lose a life with no warning.
+  ///
+  /// [viewportHeight] — the height of the grid area, from LayoutBuilder.
+  List<Widget> _buildHiddenCardArrows(double viewportHeight) {
+    // Before the first frame the scroll view has no measurements yet.
+    if (!_gridScroll.hasClients) return const [];
+
+    final double offset = _gridScroll.offset;
+
+    // Collect the cards that the player cannot see.
+    final List<TimedCard> above = [];
+    final List<TimedCard> below = [];
+
+    for (final card in _cards) {
+      // Every row is kCardHeight tall with kGridGap under it, and the whole
+      // grid starts kGridPaddingV from the top.
+      final int row = card.gridIndex ~/ 2;
+      final double top = kGridPaddingV + row * (kCardHeight + kGridGap);
+      final double bottom = top + kCardHeight;
+
+      // A card counts as hidden only when it is COMPLETELY out of view. A card
+      // that is half visible needs no arrow, because the player can see it.
+      if (bottom <= offset) {
+        above.add(card);
+      } else if (top >= offset + viewportHeight) {
+        below.add(card);
+      }
+    }
+
+    if (above.isEmpty && below.isEmpty) return const [];
+
+    return [
+      if (above.isNotEmpty)
+        Positioned(
+          top: 2,
+          left: 0,
+          right: 0,
+          child: Center(
+            child: _buildArrow(Icons.keyboard_arrow_up_rounded, above),
+          ),
+        ),
+      if (below.isNotEmpty)
+        Positioned(
+          bottom: 2,
+          left: 0,
+          right: 0,
+          child: Center(
+            child: _buildArrow(Icons.keyboard_arrow_down_rounded, below),
+          ),
+        ),
+    ];
+  }
+
+  /// Builds one blinking arrow for a group of hidden cards.
+  ///
+  /// [icon]        — the up arrow or the down arrow.
+  /// [hiddenCards] — the cards in that direction. Their state sets the colour.
+  Widget _buildArrow(IconData icon, List<TimedCard> hiddenCards) {
+    return AnimatedBuilder(
+      animation: _arrowBlink,
+      builder: (context, _) {
+        // Find the most urgent hidden card: red beats amber, amber beats white.
+        bool anyFailed = false;
+        bool anyWarning = false;
+
+        for (final card in hiddenCards) {
+          if (card.isMatched) continue; // a won card is not a danger
+          final int remaining = _remainingMs(card);
+          if (remaining <= kFailFlashMs) {
+            anyFailed = true;
+          } else if (remaining <= (kWarningSeconds * 1000)) {
+            anyWarning = true;
+          }
+        }
+
+        final Color color = anyFailed
+            ? const Color(0xFFD32F2F) // red
+            : anyWarning
+            ? const Color(0xFFFFA000) // amber
+            : Colors.white;
+
+        // The blink: the controller runs 0 to 1 and back over 1000ms, so the
+        // arrow fades between 0.30 and 1.00 opacity.
+        final double opacity = 0.30 + (0.70 * _arrowBlink.value);
+
+        return Opacity(
+          opacity: opacity,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 1),
+            decoration: BoxDecoration(
+              // A dark pill behind the arrow, so it stays readable over a
+              // white card as well as over the purple background.
+              color: Colors.black.withValues(alpha: 0.35),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(icon, color: color, size: 20),
+          ),
+        );
+      },
+    );
   }
 
   /// Builds an empty grid position: a faint box that holds the space open.
