@@ -1,0 +1,8 @@
+This file keeps the assets/audio/ folder in Git.
+
+pubspec.yaml lists assets/audio/ as an asset folder for the future sound
+effects. Git does not store empty folders, so without this file a fresh clone
+has no assets/audio/ and every build and test fails with
+"unable to find directory entry in pubspec.yaml: assets/audio/".
+
+Delete this file only when the folder holds real audio files.

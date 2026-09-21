@@ -52,7 +52,6 @@ class MainMenuScreen extends StatefulWidget {
 /// gently fade/slide into view.
 class _MainMenuScreenState extends State<MainMenuScreen>
     with SingleTickerProviderStateMixin {
-
   // ============================================================================
   // ANIMATION SETUP
   // ============================================================================
@@ -83,24 +82,30 @@ class _MainMenuScreenState extends State<MainMenuScreen>
     // Title slides in from slightly above (offset y = -0.3 → 0.0)
     // Offset values are in fractions of the widget's size, not pixels.
     // Offset(0, -0.3) means "start 30% above your normal position"
-    _titleSlideAnimation = Tween<Offset>(
-      begin: const Offset(0, -0.3), // Start slightly above
-      end: Offset.zero,             // End at normal position
-    ).animate(CurvedAnimation(
-      parent: _entranceController,
-      curve: Curves.easeOut, // Decelerates as it settles into place
-    ));
+    _titleSlideAnimation =
+        Tween<Offset>(
+          begin: const Offset(0, -0.3), // Start slightly above
+          end: Offset.zero, // End at normal position
+        ).animate(
+          CurvedAnimation(
+            parent: _entranceController,
+            curve: Curves.easeOut, // Decelerates as it settles into place
+          ),
+        );
 
     // Buttons fade in slightly delayed (start at 40% through the animation)
     // This creates a "title first, then buttons" effect
-    _buttonsFadeAnimation = Tween<double>(
-      begin: 0.0, // Fully transparent
-      end: 1.0,   // Fully opaque
-    ).animate(CurvedAnimation(
-      parent: _entranceController,
-      // Interval(0.4, 1.0): don't start until 40% of animation is done
-      curve: const Interval(0.4, 1.0, curve: Curves.easeIn),
-    ));
+    _buttonsFadeAnimation =
+        Tween<double>(
+          begin: 0.0, // Fully transparent
+          end: 1.0, // Fully opaque
+        ).animate(
+          CurvedAnimation(
+            parent: _entranceController,
+            // Interval(0.4, 1.0): don't start until 40% of animation is done
+            curve: const Interval(0.4, 1.0, curve: Curves.easeIn),
+          ),
+        );
 
     // Play the entrance animation as soon as this screen is shown
     _entranceController.forward();
@@ -198,128 +203,156 @@ class _MainMenuScreenState extends State<MainMenuScreen>
           ),
         ),
 
+        // BUG-14 FIX (REDESIGN.md): on a short screen the menu overflowed by
+        // 3.2 pixels, because the title took a fixed 40% of the WHOLE screen
+        // and the buttons need about 286px under it.
+        //
+        // Two changes fix it:
+        //   1. The title height is measured from the space the menu really
+        //      has (LayoutBuilder), not from the whole screen, and it never
+        //      goes below 140px.
+        //   2. The menu sits in a scroll view. On a very short screen, or
+        //      with large system text, the player scrolls instead of seeing
+        //      a yellow overflow bar.
+        // IntrinsicHeight lets the buttons stay centred in the space that is
+        // left on a normal screen.
         child: SafeArea(
-          child: Column(
-            children: [
-
-              // ==============================================================
-              // TITLE AREA (~40% of screen height, per Section 6.1)
-              // ==============================================================
-              SizedBox(
-                height: screenHeight * 0.40,
-
-                child: SlideTransition(
-                  position: _titleSlideAnimation,
-
-                  child: Center(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              return SingleChildScrollView(
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                  child: IntrinsicHeight(
                     child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
                       children: [
+                        // ======================================================
+                        // TITLE AREA (~40% of the menu height, per Section 6.1)
+                        // ======================================================
+                        SizedBox(
+                          height: (constraints.maxHeight * 0.40).clamp(
+                            140.0,
+                            double.infinity,
+                          ),
 
-                        // Main game title
-                        // Section 6.2: "Large (~48sp), bold, centered with subtle shadow"
-                        const Text(
-                          'Word Drop',
-                          style: TextStyle(
-                            fontSize: 52,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.white,
-                            letterSpacing: 2.0,
-                            shadows: [
-                              Shadow(
-                                blurRadius: 12.0,
-                                color: Color(0x66000000),
-                                offset: Offset(2.0, 3.0),
+                          child: SlideTransition(
+                            position: _titleSlideAnimation,
+
+                            child: Center(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  // Main game title
+                                  // Section 6.2: "Large (~48sp), bold, centered with subtle shadow"
+                                  const Text(
+                                    'Word Drop',
+                                    style: TextStyle(
+                                      fontSize: 52,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.white,
+                                      letterSpacing: 2.0,
+                                      shadows: [
+                                        Shadow(
+                                          blurRadius: 12.0,
+                                          color: Color(0x66000000),
+                                          offset: Offset(2.0, 3.0),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+
+                                  const SizedBox(height: 12),
+
+                                  const Text(
+                                    'Complete the words before they fall!',
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      fontSize: 15,
+                                      color: Color(0xCCFFFFFF),
+                                      fontStyle: FontStyle.italic,
+                                      letterSpacing: 0.5,
+                                    ),
+                                  ),
+
+                                  const SizedBox(height: 24),
+
+                                  // Decorative divider line
+                                  Container(
+                                    width: 80,
+                                    height: 3,
+                                    decoration: BoxDecoration(
+                                      // .withValues(alpha:) is the modern replacement
+                                      // for the deprecated .withOpacity()
+                                      color: Colors.white.withValues(
+                                        alpha: 0.5,
+                                      ),
+                                      borderRadius: BorderRadius.circular(2),
+                                    ),
+                                  ),
+                                ],
                               ),
-                            ],
+                            ),
                           ),
                         ),
 
-                        const SizedBox(height: 12),
+                        // ==============================================================
+                        // BUTTONS AREA (remaining ~60% of screen)
+                        // ==============================================================
+                        Expanded(
+                          child: FadeTransition(
+                            opacity: _buttonsFadeAnimation,
 
-                        const Text(
-                          'Complete the words before they fall!',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            fontSize: 15,
-                            color: Color(0xCCFFFFFF),
-                            fontStyle: FontStyle.italic,
-                            letterSpacing: 0.5,
-                          ),
-                        ),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 40.0,
+                              ),
 
-                        const SizedBox(height: 24),
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  // PRIMARY BUTTON: PLAY (Section 2.1: "Primary Action Button")
+                                  _buildPrimaryButton(
+                                    label: 'PLAY',
+                                    icon: Icons.play_arrow_rounded,
+                                    onPressed: _onPlayPressed,
+                                  ),
 
-                        // Decorative divider line
-                        Container(
-                          width: 80,
-                          height: 3,
-                          decoration: BoxDecoration(
-                            // .withValues(alpha:) is the modern replacement
-                            // for the deprecated .withOpacity()
-                            color: Colors.white.withValues(alpha: 0.5),
-                            borderRadius: BorderRadius.circular(2),
+                                  const SizedBox(height: 16),
+
+                                  // SECONDARY BUTTONS (Section 2.1)
+                                  _buildSecondaryButton(
+                                    label: 'How to Play',
+                                    icon: Icons.help_outline_rounded,
+                                    onPressed: _onHowToPlayPressed,
+                                  ),
+
+                                  const SizedBox(height: 12),
+
+                                  _buildSecondaryButton(
+                                    label: 'Settings',
+                                    icon: Icons.settings_outlined,
+                                    onPressed: _onSettingsPressed,
+                                  ),
+
+                                  const SizedBox(height: 12),
+
+                                  _buildSecondaryButton(
+                                    label: 'About',
+                                    icon: Icons.info_outline_rounded,
+                                    onPressed: _onAboutPressed,
+                                  ),
+
+                                  const SizedBox(height: 40),
+                                ],
+                              ),
+                            ),
                           ),
                         ),
                       ],
                     ),
                   ),
                 ),
-              ),
-
-              // ==============================================================
-              // BUTTONS AREA (remaining ~60% of screen)
-              // ==============================================================
-              Expanded(
-                child: FadeTransition(
-                  opacity: _buttonsFadeAnimation,
-
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 40.0),
-
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-
-                        // PRIMARY BUTTON: PLAY (Section 2.1: "Primary Action Button")
-                        _buildPrimaryButton(
-                          label: 'PLAY',
-                          icon: Icons.play_arrow_rounded,
-                          onPressed: _onPlayPressed,
-                        ),
-
-                        const SizedBox(height: 16),
-
-                        // SECONDARY BUTTONS (Section 2.1)
-                        _buildSecondaryButton(
-                          label: 'How to Play',
-                          icon: Icons.help_outline_rounded,
-                          onPressed: _onHowToPlayPressed,
-                        ),
-
-                        const SizedBox(height: 12),
-
-                        _buildSecondaryButton(
-                          label: 'Settings',
-                          icon: Icons.settings_outlined,
-                          onPressed: _onSettingsPressed,
-                        ),
-
-                        const SizedBox(height: 12),
-
-                        _buildSecondaryButton(
-                          label: 'About',
-                          icon: Icons.info_outline_rounded,
-                          onPressed: _onAboutPressed,
-                        ),
-
-                        const SizedBox(height: 40),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ],
+              );
+            },
           ),
         ),
       ),

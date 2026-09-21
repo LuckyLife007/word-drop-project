@@ -110,8 +110,9 @@ class ProgressManager {
 
   /// Loads the player's saved progress from local storage.
   ///
-  /// Call this once when the app starts (already done in main.dart via
-  /// the splash screen) or when the Level Selection screen opens.
+  /// WHO CALLS IT: the Level Selection screen, every time it opens.
+  /// The splash screen does NOT call it — the splash screen loads the word
+  /// bank only. (This comment said the opposite before: REDESIGN.md BUG-8.)
   ///
   /// If no saved data exists (first time playing), defaults are used:
   ///   - highestUnlockedLevel = 1 (only Level 1 available)
@@ -139,9 +140,11 @@ class ProgressManager {
     }
 
     _isLoaded = true;
-    print('📊 ProgressManager: loaded progress - '
-        'highest unlocked: $_highestUnlockedLevel, '
-        'best times: $_bestTimes');
+    print(
+      '📊 ProgressManager: loaded progress - '
+      'highest unlocked: $_highestUnlockedLevel, '
+      'best times: $_bestTimes',
+    );
   }
 
   // ==========================================================================
@@ -241,8 +244,10 @@ class ProgressManager {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setInt('$_kBestTimePrefix$levelNumber', timeMs);
 
-      print('⏱️ ProgressManager: new best time for Level $levelNumber: '
-          '${getFormattedBestTime(levelNumber)}');
+      print(
+        '⏱️ ProgressManager: new best time for Level $levelNumber: '
+        '${getFormattedBestTime(levelNumber)}',
+      );
     }
   }
 

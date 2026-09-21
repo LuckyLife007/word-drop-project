@@ -547,6 +547,11 @@ class _GameScreenState extends State<GameScreen>
   /// The countdown stops early if the player pauses, or if the game ends
   /// during it. The caller checks the state before it starts any timer.
   Future<void> _runCountdown() async {
+    // Never start the countdown over a pause or an end overlay. This can
+    // happen when the player pauses during the 400ms that the level start
+    // waits for the keyboard (the old BUG-1 situation).
+    if (_isPaused || _isGameOver || _isLevelComplete) return;
+
     setState(() {
       _isCountingDown = true;
       _countdownLabel = '3';

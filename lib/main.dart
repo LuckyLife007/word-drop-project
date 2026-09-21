@@ -14,9 +14,10 @@
 // Think of it like the "front door" of the app - everything begins here.
 // ============================================================================
 
+import 'package:flutter/foundation.dart' show kIsWeb; // Tells web from mobile
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart'; // Needed for locking screen orientation
-import 'managers/word_bank.dart';       // Our word bank loader
+import 'managers/word_bank.dart'; // Our word bank loader
 import 'screens/main_menu_screen.dart'; // The main menu screen we'll show after loading
 
 // ============================================================================
@@ -70,15 +71,22 @@ void main() async {
   // Without this line, calling SystemChrome below would crash the app.
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Lock the app to portrait mode only.
-  // The documentation (Section 1.2) specifies portrait-only for consistent gameplay.
-  // We do this here at startup so it's enforced from the very first frame.
-  // DeviceOrientation.portraitUp = phone held normally, right-side up
-  // DeviceOrientation.portraitDown = phone held upside-down (we block this too
-  //   so the screen doesn't flip if the player tilts their phone)
-  await SystemChrome.setPreferredOrientations([
-    DeviceOrientation.portraitUp,
-  ]);
+  // Lock the app to ONE orientation: portrait, right-side up.
+  // The documentation (Section 1.2) asks for portrait only, so the game area
+  // keeps the same shape on every device.
+  //
+  // The list holds portraitUp alone. Every other orientation is blocked,
+  // including portraitDown (the phone held upside-down), so the screen never
+  // flips while the player types.
+  //
+  // WHY THE kIsWeb CHECK (REDESIGN.md BUG-11):
+  // A browser on a desktop cannot lock the screen orientation. The call throws
+  // an uncaught AssertionError in the browser console at every start. The app
+  // still runs, but the error hides real problems. On a phone the lock works,
+  // so we simply skip the call on the web.
+  if (!kIsWeb) {
+    await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
+  }
 
   // Start the Flutter app by running our root widget.
   // runApp() takes a widget and makes it fill the entire screen.
@@ -195,7 +203,6 @@ class SplashScreen extends StatefulWidget {
 /// This mixin provides that ticker. We use it to animate the logo fading in.
 class _SplashScreenState extends State<SplashScreen>
     with SingleTickerProviderStateMixin {
-
   // ============================================================================
   // STATE VARIABLES
   // These are the pieces of data that can change and affect what's displayed.
@@ -302,10 +309,7 @@ class _SplashScreenState extends State<SplashScreen>
         transitionsBuilder: (context, animation, secondaryAnimation, child) {
           // FadeTransition makes the new screen fade in
           // This matches Section 6.4: "FadeTransition (300ms) for menus"
-          return FadeTransition(
-            opacity: animation,
-            child: child,
-          );
+          return FadeTransition(opacity: animation, child: child);
         },
       ),
     );
@@ -317,7 +321,7 @@ class _SplashScreenState extends State<SplashScreen>
   @override
   void dispose() {
     _fadeController.dispose(); // Free animation resources
-    super.dispose();           // Always call super.dispose() last
+    super.dispose(); // Always call super.dispose() last
   }
 
   // ============================================================================
@@ -338,8 +342,8 @@ class _SplashScreenState extends State<SplashScreen>
         // "LinearGradient from #667eea (top) to #764ba2 (bottom)"
         decoration: const BoxDecoration(
           gradient: LinearGradient(
-            begin: Alignment.topCenter,    // Gradient starts at the top
-            end: Alignment.bottomCenter,   // Gradient ends at the bottom
+            begin: Alignment.topCenter, // Gradient starts at the top
+            end: Alignment.bottomCenter, // Gradient ends at the bottom
             colors: [
               Color(0xFF667eea), // Blue-purple (top of sky)
               Color(0xFF764ba2), // Deep purple (bottom of sky)
@@ -365,7 +369,7 @@ class _SplashScreenState extends State<SplashScreen>
                 const Text(
                   'Word Drop',
                   style: TextStyle(
-                    fontSize: 56,                   // Large, prominent title
+                    fontSize: 56, // Large, prominent title
                     fontWeight: FontWeight.bold,
                     color: Colors.white,
                     // Subtle text shadow for depth (mentioned in docs)
@@ -382,7 +386,6 @@ class _SplashScreenState extends State<SplashScreen>
                 ),
 
                 const SizedBox(height: 12), // Space between title and tagline
-
                 // Tagline - small subtitle under the title
                 const Text(
                   'Complete the words before they fall!',
@@ -394,7 +397,6 @@ class _SplashScreenState extends State<SplashScreen>
                 ),
 
                 const SizedBox(height: 60), // Space before loading indicator
-
                 // ============================================================
                 // LOADING INDICATOR
                 // ============================================================

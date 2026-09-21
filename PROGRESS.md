@@ -141,7 +141,9 @@ metaspace, which is enough for this project.
 - Singleton that tracks game state: current level, score, lives, current word
 - Handles word selection with anti-repetition logic (tracks used hint/clue combinations per session)
 - Implements word length progression within each level (words 1–4 are 6 letters, 5–8 are 7 letters, etc.) per documentation Section 4.2
-- Methods: `initialize()`, `resetGame()`, `getNextWord()`, `checkAnswer()`, `advanceLevel()`
+- Methods: `initialize()`, `resetGame()`, `startLevel()`, `getNextWord()`, `recordCorrectWord()`, `printGameState()`
+- The score and the lives live in the game screen, not here. This class owns
+  the words only (REDESIGN.md BUG-7).
 - Contains a `TODO` for victory screen (to be wired up when the game screen is built)
 
 #### `progress_manager.dart`

@@ -773,7 +773,7 @@
     {
       "word": "PROFESSOR",
       "length": 9,
-      "hints": ["P-O-E-S-R", "-R-F-S-OR", "P----ES-OR"],
+      "hints": ["P-O-E-S-R", "-R-F-S-OR", "P---ES-OR"],
       "clues": [
         "Teacher at colleges and universities",
         "Academic expert with advanced degrees",
@@ -893,7 +893,7 @@
     {
       "word": "PLAYGROUND",
       "length": 10,
-      "hints": ["P--Y-R-U-D", "-L-Y-R-U-D", "PLA---R-U-"],
+      "hints": ["P--Y-R-U-D", "-L-Y-R-U-D", "PLA--R-U--"],
       "clues": [
         "Area with swings, slides, and equipment for children",
         "Outdoor space for kids to play",

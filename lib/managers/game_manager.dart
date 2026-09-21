@@ -155,15 +155,11 @@ class GameManager {
   /// Which level is currently being played (1-5).
   int _currentLevel = 1;
 
-  /// Score accumulated in the current level (0-100). Resets each level.
-  int _score = 0;
-
-  /// Lives remaining in the current level.
-  /// Level 1 = 3, Level 2 = 4, ..., Level 5 = 7. Formula: 2 + _currentLevel.
-  int _lives = 3;
-
-  /// The last word returned by getNextWord(). Kept for checkAnswer() reference.
+  /// The last word returned by getNextWord().
   /// Null when no word has been served yet this level.
+  ///
+  /// NOTE: the score and the lives live in GameScreen, not here. This class
+  /// owns the words only (REDESIGN.md BUG-7).
   WordWithCombination? _currentWord;
 
   /// How many words the player has correctly completed in this level (0-19).
@@ -239,11 +235,8 @@ class GameManager {
   // ==========================================================================
 
   int get currentLevel => _currentLevel;
-  int get score => _score;
-  int get lives => _lives;
   WordWithCombination? get currentWord => _currentWord;
   int get wordCounterWithinLevel => _wordCounterWithinLevel;
-  bool get isGameOver => _lives <= 0;
 
   // ==========================================================================
   // INITIALIZATION
@@ -266,8 +259,6 @@ class GameManager {
   /// call startLevel() instead — it's more precise.
   void resetGame() {
     _currentLevel = 1;
-    _score = 0;
-    _lives = 3;
     _currentWord = null;
     _wordCounterWithinLevel = 0;
     _wordQueues.clear();
@@ -296,28 +287,25 @@ class GameManager {
   /// WHAT IT RESETS:
   ///   - _currentLevel           -> the chosen level number
   ///   - _wordCounterWithinLevel -> 0 (starts counting from word 1 again)
-  ///   - _score                  -> 0 (each level scored independently)
-  ///   - _lives                  -> correct value for this level
   ///   - _wordQueues             -> freshly shuffled queues for all lengths (Bug 3 fix)
   ///   - _currentWord            -> null
+  ///
+  /// The score and the lives belong to GameScreen, so they are not reset here.
   ///
   /// [levelNumber] — which level is starting (1-5), from LevelConfig.levelNumber.
   void startLevel(int levelNumber) {
     _currentLevel = levelNumber.clamp(1, 5);
     _wordCounterWithinLevel = 0;
-    _score = 0;
     _currentWord = null;
-
-    // Lives scale with level: Level 1=3, Level 2=4, Level 3=5, Level 4=6, Level 5=7
-    // The formula 2 + _currentLevel gives: 2+1=3, 2+2=4, 2+3=5, 2+4=6, 2+5=7
-    _lives = 2 + _currentLevel;
 
     // Build fresh shuffled queues for every word length.
     // This is what prevents within-level repetition (Bug 3 fix).
     _initWordQueues();
 
-    print('GameManager: startLevel($_currentLevel) — '
-        'queues rebuilt, counter reset to 0, lives=$_lives');
+    print(
+      'GameManager: startLevel($_currentLevel) — '
+      'queues rebuilt, counter reset to 0',
+    );
   }
 
   // ==========================================================================
@@ -405,8 +393,10 @@ class GameManager {
     // this length — extremely unlikely with the 10-word cap, but we handle
     // it gracefully. Just take the front word rather than returning null
     // (returning null would silently stop spawning words entirely).
-    print('Warning: All queued words of length $length are currently active. '
-        'Spawning a duplicate as a last resort.');
+    print(
+      'Warning: All queued words of length $length are currently active. '
+      'Spawning a duplicate as a last resort.',
+    );
     return queue.removeAt(0);
   }
 
@@ -451,7 +441,9 @@ class GameManager {
     }
 
     // STEP 3: Find an unused hint/clue combination for this word.
-    List<String> availableCombinations = _getAvailableCombinations(selectedWord);
+    List<String> availableCombinations = _getAvailableCombinations(
+      selectedWord,
+    );
 
     // Edge case: all 9 combinations for this word have been used this session.
     // This would require seeing the same word at least 9 times — very rare,
@@ -544,91 +536,27 @@ class GameManager {
   }
 
   // ==========================================================================
-  // ANSWER CHECKING AND SCORING
+  // WORD COUNTER
   // ==========================================================================
 
-  /// Checks whether the player's guess matches the current word.
+  /// Advances the word-position counter after the player answers correctly.
   ///
-  /// NOTE: In the current GameScreen architecture, matching is done directly
-  /// against each FallingWord's .answer string in the onChanged callback.
-  /// This method is available for alternative use cases or testing.
+  /// GameScreen calls this on every match. The counter decides the word length
+  /// of the NEXT card, which GameScreen cannot work out by itself:
+  ///   words 1-4   → 6 letters   (counter 0-3)
+  ///   words 5-8   → 7 letters   (counter 4-7)
+  ///   words 9-12  → 8 letters   (counter 8-11)
+  ///   words 13-16 → 9 letters   (counter 12-15)
+  ///   words 17-20 → 10 letters  (counter 16-19)
   ///
-  /// [guess] — the player's typed text (comparison is case-insensitive).
-  bool checkAnswer(String guess) {
-    if (_currentWord == null) {
-      print('checkAnswer called but no current word is set');
-      return false;
-    }
-
-    bool isCorrect = _currentWord!.word.matchesGuess(guess);
-    isCorrect ? _handleCorrectAnswer() : _handleWrongAnswer();
-    return isCorrect;
-  }
-
-  /// Advances the word-position counter after the player correctly guesses a word.
-  ///
-  /// Called by GameScreen's _onInputChanged() each time a match is confirmed.
-  /// GameScreen manages its own _score, _wordsCompleted, and level-complete
-  /// detection — this method ONLY increments _wordCounterWithinLevel so that
-  /// the next getNextWord() call returns the correct word length for the
-  /// player's current position in the level:
-  ///   words 1-4  → 6 letters   (counter 0-3)
-  ///   words 5-8  → 7 letters   (counter 4-7)
-  ///   words 9-12 → 8 letters   (counter 8-11)
-  ///   words 13-16→ 9 letters   (counter 12-15)
-  ///   words 17-20→ 10 letters  (counter 16-19)
-  ///
-  /// WHY NOT checkAnswer()?
-  /// checkAnswer() also awards points and deducts lives via GameManager's
-  /// internal _score and _lives. GameScreen has its own copies of these values
-  /// (for immediate UI updates and animations), so calling checkAnswer() would
-  /// cause double-counting. recordCorrectWord() is the narrow public surface
-  /// that advances only the counter GameScreen cannot track itself.
+  /// GameScreen owns the score, the lives and the end of a level. This class
+  /// owns only the words. Keeping the two apart stops the double counting that
+  /// BUG-7 described in REDESIGN.md.
   void recordCorrectWord() {
     _wordCounterWithinLevel++;
-    print('📝 GameManager: word counter advanced to '
-        '$_wordCounterWithinLevel/20');
-  }
-
-  /// Awards 5 points and advances the word counter when player is correct.
-  void _handleCorrectAnswer() {
-    const int pointsPerWord = 5;
-    _score += pointsPerWord;
-    _wordCounterWithinLevel++;
-
-    print('Correct! +$pointsPerWord pts '
-        '(score: $_score, position: $_wordCounterWithinLevel/20)');
-
-    // Check if the player just completed the 20th word in this level.
-    if (_wordCounterWithinLevel >= 20) {
-      _advanceToNextLevel();
-    }
-  }
-
-  /// Deducts a life when a word hits the ground (or a wrong answer is submitted).
-  void _handleWrongAnswer() {
-    _lives--;
-    print('Missed word. Lives remaining: $_lives');
-    if (_lives <= 0) {
-      print('Game Over at Level $_currentLevel');
-    }
-  }
-
-  /// Internal level advance — mirrors the UI-driven level advance in GameScreen.
-  /// In practice, GameScreen handles this via the Level Complete overlay, but
-  /// keeping this internal logic consistent prevents state from going out of sync.
-  void _advanceToNextLevel() {
-    if (_currentLevel < 5) {
-      _currentLevel++;
-      _score = 0;
-      _wordCounterWithinLevel = 0;
-      _lives = 2 + _currentLevel;
-      _initWordQueues(); // Rebuild queues fresh for the new level
-      print('Advanced to Level $_currentLevel internally. Lives=$_lives');
-    } else {
-      print('All 5 levels complete — game victory!');
-      // TODO Stage 6: trigger victory overlay
-    }
+    print(
+      '📝 GameManager: word counter advanced to $_wordCounterWithinLevel/20',
+    );
   }
 
   // ==========================================================================
@@ -638,23 +566,23 @@ class GameManager {
   /// Prints a full snapshot of the current game state to the console.
   /// Call GameManager().printGameState() anywhere while debugging.
   void printGameState() {
-    print('${'=' * 50}');
+    print('=' * 50);
     print('GAME STATE');
-    print('Level: $_currentLevel | '
-        'Position: $_wordCounterWithinLevel/20 | '
-        'Score: $_score/100 | '
-        'Lives: $_lives');
+    print('Level: $_currentLevel | Position: $_wordCounterWithinLevel/20');
     print('Current Word: ${_currentWord?.word.word ?? 'None'}');
-    print('Game Over: $isGameOver');
     print('\nWORD QUEUE SIZES (words remaining before a repeat):');
     for (int len = 6; len <= 10; len++) {
       int remaining = _wordQueues[len]?.length ?? 0;
       print('  Length $len: $remaining words remaining in queue');
     }
-    int totalCombos = _usedCombinations.values
-        .fold(0, (sum, set) => sum + set.length);
-    print('\nCombination history: '
-        '${_usedCombinations.length} words, $totalCombos combos used this session');
-    print('${'=' * 50}');
+    int totalCombos = _usedCombinations.values.fold(
+      0,
+      (sum, set) => sum + set.length,
+    );
+    print(
+      '\nCombination history: '
+      '${_usedCombinations.length} words, $totalCombos combos used this session',
+    );
+    print('=' * 50);
   }
 }
